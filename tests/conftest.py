@@ -32,11 +32,11 @@ class FakeSession(BaseSession):
         self.calls.append(method)
         name = type(method).__name__
         self._next_id += 1
-        if name in {"SendMessage", "EditMessageText"}:
+        if name in {"SendMessage", "EditMessageText", "SendPhoto"}:
             chat_id = getattr(method, "chat_id", None) or 1
             return Message(
                 message_id=self._next_id, date=dt.datetime.now(),
-                chat=Chat(id=chat_id, type="private"), text=getattr(method, "text", ""),
+                chat=Chat(id=chat_id, type="private"), text=getattr(method, "text", None) or getattr(method, "caption", None) or "",
             )
         if name == "CopyMessage":
             return MessageId(message_id=self._next_id)
@@ -54,6 +54,15 @@ class FakeSession(BaseSession):
             c for c in self.calls
             if type(c).__name__ == "SendMessage" and (chat_id is None or c.chat_id == chat_id)
         ]
+
+
+@pytest.fixture(autouse=True)
+def _reset_concept_choice():
+    from app import scope
+
+    scope.reset()
+    yield
+    scope.reset()
 
 
 @pytest.fixture
@@ -76,11 +85,11 @@ async def repo() -> Repository:
 class Harness:
     def __init__(self, repo: Repository, config: Config) -> None:
         from app.__main__ import build_dispatcher
-        from app.handlers import feedback, knowledge, menu, registration
+        from app.handlers import feedback, knowledge, menu, products, registration
 
         # Роутеры — модульные объекты, в aiogram их можно подключить лишь раз.
         # Для отдельного диспетчера на каждый тест отцепляем их от прошлого.
-        for r in (registration.router, feedback.chat_router, knowledge.router, feedback.router, menu.router):
+        for r in (registration.router, feedback.chat_router, knowledge.router, products.router, feedback.router, menu.router):
             r._parent_router = None
 
         self.repo = repo

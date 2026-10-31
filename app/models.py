@@ -52,6 +52,7 @@ class Employee:
     active: bool
     invite_code: str
     newbie_override: bool | None  # None = считать по дате старта
+    all_concepts: bool | None = None  # None = решает роль; True/False = задано в таблице
 
     def is_newbie(self, today: date, newbie_days: int) -> bool:
         if self.newbie_override is not None:
@@ -66,10 +67,27 @@ class Employee:
         return parts[1] if len(parts) > 1 else (parts[0] if parts else "")
 
 
+COMMON = {"", "все", "all", "*"}
+
+
+def concept_matches(item_concept: str, employee_concept: str | None) -> bool:
+    """Видна ли запись сотруднику.
+
+    - employee_concept = None: сотрудник работает со всеми концепциями (ТУ, HR, менеджер по обучению)
+    - employee_concept = "": концепция сотрудника не определена, ему видны только общие записи
+    - иначе: общие записи («все» или пусто) и записи его концепции, чужие скрыты
+    """
+    cid = item_concept.strip().lower()
+    if cid in COMMON or employee_concept is None:
+        return True
+    return cid == employee_concept.strip().lower()
+
+
 @dataclass
 class Concept:
     id: str
     name: str
+    moderator_id: str = ""
 
 
 @dataclass
@@ -101,10 +119,24 @@ class Material:
     order: int
 
     def visible_for_concept(self, concept_id: str | None) -> bool:
-        cid = self.concept_id.strip().lower()
-        if cid in {"", "все", "all", "*"} or concept_id is None:
-            return True
-        return cid == concept_id.lower()
+        return concept_matches(self.concept_id, concept_id)
+
+
+@dataclass
+class Product:
+    id: str
+    concept_id: str
+    category: str
+    name: str
+    photo_url: str
+    ingredients: str
+    allergens: str
+    method: str
+    pairings: str
+    storytelling: str
+
+    def visible_for_concept(self, concept_id: str | None) -> bool:
+        return concept_matches(self.concept_id, concept_id)
 
 
 @dataclass

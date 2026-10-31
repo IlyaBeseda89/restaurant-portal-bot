@@ -18,7 +18,6 @@ router = Router(name="menu")
 
 # Разделы, которые появятся на этапах 2–3 плана (ТЗ, раздел 9)
 _LATER = {
-    kb.BTN_PRODUCTS: (Section.PRODUCTS, "Карточки продуктов появятся на этапе 2."),
     kb.BTN_TRAININGS: (Section.SCHEDULE_VIEW, "Расписание тренингов и подписка на календарь появятся на этапе 2."),
     kb.BTN_REQUEST: (Section.TRAINING_REQUEST, "Заявки на тренинги появятся на этапе 2."),
     kb.BTN_REQUESTS_INBOX: (Section.REQUESTS_PROCESS, "Обработка заявок появится на этапе 2."),

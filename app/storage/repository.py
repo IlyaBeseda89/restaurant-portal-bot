@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from app import schema as S
 from app.models import (
-    Category, Concept, Employee, Feedback, Material, Restaurant,
+    Category, Concept, Employee, Feedback, Material, Product, Restaurant,
     normalize_name, parse_bool, parse_date, parse_int,
 )
 from app.roles import Role
@@ -38,7 +38,13 @@ def _employee(row: Row) -> Employee | None:
         active=parse_bool(row.get("активен"), default=True),
         invite_code=row.get("пригласительный_код", "").strip(),
         newbie_override=parse_bool(newbie_raw) if newbie_raw else None,
+        all_concepts=(
+            parse_bool(row.get("все_концепции")) if row.get("все_концепции", "").strip() else None
+        ),
     )
+
+
+CROSS_CONCEPT_ROLES = {Role.TU, Role.TRAINING_MANAGER, Role.HR}
 
 
 class Repository:
@@ -115,14 +121,34 @@ class Repository:
 
     async def list_concepts(self) -> list[Concept]:
         rows = await self.backend.read_all(S.CONCEPTS)
-        return [Concept(id=r["id"], name=r.get("название", "")) for r in rows if r.get("id")]
+        return [
+            Concept(id=r["id"], name=r.get("название", ""), moderator_id=r.get("модератор_id", "").strip())
+            for r in rows if r.get("id")
+        ]
 
     async def concept_of(self, employee: Employee) -> str | None:
-        """Концепция сотрудника по его ресторану. None — видит все концепции."""
-        if not employee.restaurant_id:
+        """К какой концепции относится сотрудник.
+
+        None  — работает со всеми концепциями: ТУ, менеджер по обучению, HR, а также любой,
+                кому в таблице «Сотрудники» стоит «да» в колонке «все_концепции»
+                («нет» там отключает это даже для таких ролей);
+        "…"   — id его концепции (по ресторану, а у модератора по листу «Концепции»);
+        ""    — определить не удалось (нет ресторана, у ресторана нет концепции):
+                такой сотрудник видит только общие материалы, чужое не показывается.
+        """
+        if employee.all_concepts is True:
             return None
-        restaurant = await self.get_restaurant(employee.restaurant_id)
-        return restaurant.concept_id if restaurant and restaurant.concept_id else None
+        if employee.role is Role.MODERATOR:
+            for c in await self.list_concepts():
+                if c.moderator_id and c.moderator_id == employee.id:
+                    return c.id
+        elif employee.all_concepts is None and employee.role in CROSS_CONCEPT_ROLES:
+            return None
+        if employee.restaurant_id:
+            restaurant = await self.get_restaurant(employee.restaurant_id)
+            if restaurant and restaurant.concept_id.strip():
+                return restaurant.concept_id.strip()
+        return ""
 
     # ---------- база знаний ----------
 
@@ -161,6 +187,66 @@ class Repository:
             if m.id == material_id:
                 return m
         return None
+
+    # ---------- карточки продуктов ----------
+
+    async def list_products(
+        self, concept_id: str | None, category: str | None = None
+    ) -> list[Product]:
+        """Активные карточки концепции сотрудника (и общие) в порядке строк таблицы."""
+        items = []
+        for r in await self.backend.read_all(S.PRODUCTS):
+            if not r.get("id") or not r.get("название", "").strip():
+                continue
+            if not parse_bool(r.get("активен")):
+                continue
+            p = Product(
+                id=r["id"], concept_id=r.get("концепция_id", ""),
+                category=r.get("категория_меню", "").strip() or "Без категории",
+                name=r["название"].strip(), photo_url=r.get("фото_url", "").strip(),
+                ingredients=r.get("состав", "").strip(), allergens=r.get("аллергены", "").strip(),
+                method=r.get("метод_приготовления", "").strip(),
+                pairings=r.get("сочетания", "").strip(),
+                storytelling=r.get("сторителлинг", "").strip(),
+            )
+            if not p.visible_for_concept(concept_id):
+                continue
+            if category is not None and p.category != category:
+                continue
+            items.append(p)
+        return items
+
+    async def list_product_categories(self, concept_id: str | None) -> list[str]:
+        seen: dict[str, None] = {}
+        for p in await self.list_products(concept_id):
+            seen.setdefault(p.category)
+        return list(seen)
+
+    async def get_product(self, product_id: str, concept_id: str | None) -> Product | None:
+        for p in await self.list_products(concept_id):
+            if p.id == product_id:
+                return p
+        return None
+
+    # ---------- прогресс «изучено» ----------
+
+    async def is_done(self, employee_id: str, kind: str, object_id: str) -> bool:
+        return any(
+            r.get("сотрудник_id") == employee_id and r.get("тип") == kind
+            and r.get("объект_id") == object_id
+            for r in await self.backend.read_all(S.PROGRESS)
+        )
+
+    async def mark_done(self, employee_id: str, kind: str, object_id: str) -> bool:
+        """Отмечает изученным. False, если уже было отмечено раньше."""
+        async with self._id_lock:
+            if await self.is_done(employee_id, kind, object_id):
+                return False
+            await self.backend.append(S.PROGRESS, {
+                "id": await self._next_id(S.PROGRESS), "сотрудник_id": employee_id,
+                "тип": kind, "объект_id": object_id, "дата": self._now_str(),
+            })
+        return True
 
     # ---------- обратная связь ----------
 
