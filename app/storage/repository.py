@@ -18,6 +18,7 @@ from app.models import (
     Category,
     Concept,
     Employee,
+    Enrollment,
     Event,
     Feedback,
     Material,
@@ -384,6 +385,7 @@ class Repository:
             host=r.get("ведущий", "").strip(), capacity=parse_int(r.get("вместимость"), 0),
             enrolled=parse_int(r.get("записано"), 0), status=r.get("статус", "").strip().lower() or "план",
             reminded=parse_bool(r.get("напоминание"), default=False),
+            open=parse_bool(r.get("запись"), default=False), concept_id=r.get("концепция_id", "").strip(),
         )
 
     async def list_events(self) -> list[Event]:
@@ -419,6 +421,90 @@ class Repository:
 
     async def update_event(self, event_id: str, **changes: str) -> bool:
         return await self.backend.update(S.SCHEDULE, "id", event_id, changes)
+
+    # ---------- запись на тренинги ----------
+
+    @staticmethod
+    def _enrollment(r: Row) -> Enrollment:
+        return Enrollment(
+            id=r["id"], event_id=r.get("событие_id", "").strip(), employee_id=r.get("сотрудник_id", "").strip(),
+            status=r.get("статус", "").strip().lower(), created=r.get("дата", ""),
+            rating=parse_int(r.get("оценка"), 0),
+        )
+
+    async def list_enrollments(self, event_id: str | None = None) -> list[Enrollment]:
+        items = [self._enrollment(r) for r in await self.backend.read_all(S.ENROLLMENTS) if r.get("id")]
+        return [e for e in items if event_id is None or e.event_id == event_id]
+
+    async def get_enrollment(self, event_id: str, employee_id: str) -> Enrollment | None:
+        for e in await self.list_enrollments(event_id):
+            if e.employee_id == employee_id:
+                return e
+        return None
+
+    async def _set_enrollment(self, event_id: str, employee_id: str, status: str) -> None:
+        current = await self.get_enrollment(event_id, employee_id)
+        if current is None:
+            await self.backend.append(S.ENROLLMENTS, {
+                "id": await self._next_id(S.ENROLLMENTS), "событие_id": event_id,
+                "сотрудник_id": employee_id, "статус": status, "дата": self._now_str(), "оценка": "",
+            })
+        else:
+            await self.backend.update(S.ENROLLMENTS, "id", current.id, {"статус": status, "дата": self._now_str()})
+
+    async def _sync_seats(self, event_id: str) -> int:
+        taken = sum(1 for e in await self.list_enrollments(event_id) if e.status == "записан")
+        await self.update_event(event_id, записано=str(taken))
+        return taken
+
+    async def enroll(self, event_id: str, employee_id: str) -> str:
+        """Записывает на тренинг. Возвращает «записан», «очередь» или «уже» (запись уже есть)."""
+        async with self._id_lock:
+            event = await self.get_event(event_id)
+            if event is None:
+                return "нет"
+            current = await self.get_enrollment(event_id, employee_id)
+            if current is not None and current.status in {"записан", "очередь"}:
+                return "уже"
+            taken = sum(1 for e in await self.list_enrollments(event_id) if e.status == "записан")
+            status = "очередь" if 0 < event.capacity <= taken else "записан"
+            await self._set_enrollment(event_id, employee_id, status)
+            await self._sync_seats(event_id)
+        return status
+
+    async def promote_queue(self, event_id: str) -> list[str]:
+        """Переводит из очереди в записанные, пока есть места. Возвращает id повышенных сотрудников."""
+        event = await self.get_event(event_id)
+        if event is None:
+            return []
+        items = await self.list_enrollments(event_id)
+        taken = sum(1 for e in items if e.status == "записан")
+        promoted = []
+        for e in items:  # очередь в порядке записи (строки таблицы идут по времени)
+            if e.status != "очередь":
+                continue
+            if event.capacity > 0 and taken >= event.capacity:
+                break
+            await self._set_enrollment(event_id, e.employee_id, "записан")
+            taken += 1
+            promoted.append(e.employee_id)
+        await self._sync_seats(event_id)
+        return promoted
+
+    async def cancel_enrollment(self, event_id: str, employee_id: str) -> list[str]:
+        """Отменяет запись. Возвращает id тех, кто из очереди получил место."""
+        async with self._id_lock:
+            current = await self.get_enrollment(event_id, employee_id)
+            if current is None or current.status not in {"записан", "очередь"}:
+                return []
+            await self._set_enrollment(event_id, employee_id, "отменил")
+            await self._sync_seats(event_id)
+            return await self.promote_queue(event_id)
+
+    async def set_event_capacity(self, event_id: str, capacity: int) -> list[str]:
+        async with self._id_lock:
+            await self.update_event(event_id, вместимость=str(capacity) if capacity > 0 else "")
+            return await self.promote_queue(event_id)
 
     @staticmethod
     def _request(r: Row) -> TrainingRequest:

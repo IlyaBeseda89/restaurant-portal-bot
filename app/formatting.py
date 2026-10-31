@@ -41,4 +41,6 @@ def event_card(event: Event, topic: Topic | None) -> str:
         lines.append(f"👤 Ведущий: {html.quote(event.host)}")
     if event.capacity > 0:
         lines.append(f"🪑 Записано {event.enrolled} из {event.capacity}")
+    elif event.open and event.active:
+        lines.append(f"🪑 Записано {event.enrolled}")
     return "\n".join(lines)

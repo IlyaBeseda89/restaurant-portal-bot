@@ -192,6 +192,8 @@ class Event:
     enrolled: int
     status: str  # план / подтверждён / проведён / отменён
     reminded: bool = False
+    open: bool = False  # открыта самозапись
+    concept_id: str = ""  # пусто = всем концепциям
 
     @property
     def active(self) -> bool:
@@ -224,3 +226,17 @@ class TrainingRequest:
             if name:
                 names.append(name)
         return names
+
+
+@dataclass
+class Enrollment:
+    id: str
+    event_id: str
+    employee_id: str
+    status: str  # записан / очередь / отменил / был / не был
+    created: str = ""
+    rating: int = 0
+
+    @property
+    def holds_seat(self) -> bool:
+        return self.status in {"записан", "был", "не был"}

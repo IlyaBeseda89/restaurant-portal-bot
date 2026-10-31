@@ -28,6 +28,11 @@ async def event_audience(repo: Repository, event: Event) -> tuple[list[Employee]
         found, missing = await repo.match_participants(request.participant_names)
         for e in found:
             people[e.id] = e
+    for enrollment in await repo.list_enrollments(event.id):  # записавшиеся сами
+        if enrollment.status in {"записан", "был", "не был"}:
+            e = await repo.get_employee(enrollment.employee_id)
+            if e and e.telegram_id and e.active:
+                people[e.id] = e
     return list(people.values()), missing
 
 
