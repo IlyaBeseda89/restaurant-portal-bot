@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app import schema as S
@@ -310,6 +310,43 @@ class Repository:
 
     async def update_product(self, product_id: str, **changes: str) -> bool:
         return await self.backend.update(S.PRODUCTS, "id", product_id, changes)
+
+    # ---------- прогресс и статистика ----------
+
+    async def done_ids(self, employee_id: str, kind: str) -> set[str]:
+        """Что сотрудник уже отметил изученным (лист «Прогресс»)."""
+        return {
+            r.get("объект_id", "") for r in await self.backend.read_all(S.PROGRESS)
+            if r.get("сотрудник_id") == employee_id and r.get("тип") == kind
+        }
+
+    async def all_progress(self, kind: str) -> dict[str, set[str]]:
+        """сотрудник_id → id изученных объектов."""
+        result: dict[str, set[str]] = {}
+        for r in await self.backend.read_all(S.PROGRESS):
+            if r.get("тип") == kind:
+                result.setdefault(r.get("сотрудник_id", ""), set()).add(r.get("объект_id", ""))
+        return result
+
+    async def activity_since(self, days: int) -> list[dict]:
+        """Записи журнала за последние дни (сначала сбрасывает буфер в таблицу)."""
+        await self.flush_activity()
+        limit = self.now().replace(tzinfo=None) - timedelta(days=days)
+        rows = []
+        for r in await self.backend.read_all(S.ACTIVITY):
+            when = parse_datetime(r.get("дата"))
+            if when and when >= limit:
+                rows.append({**r, "when": when})
+        return rows
+
+    async def feedback_since(self, days: int) -> list[dict]:
+        limit = self.now().replace(tzinfo=None) - timedelta(days=days)
+        rows = []
+        for r in await self.backend.read_all(S.FEEDBACK):
+            when = parse_datetime(r.get("дата"))
+            if when and when >= limit:
+                rows.append(r)
+        return rows
 
     # ---------- тренинги: темы, расписание, заявки ----------
 

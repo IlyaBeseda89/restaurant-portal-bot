@@ -1,4 +1,4 @@
-"""Главное меню: помощь, заглушки разделов следующих этапов, ответ незарегистрированным."""
+"""Главное меню: помощь, ответ на непонятные сообщения и незарегистрированным."""
 
 from __future__ import annotations
 
@@ -10,17 +10,10 @@ from aiogram.types import CallbackQuery, Message
 from app import keyboards as kb
 from app.handlers.common import Registered
 from app.models import Employee
-from app.roles import Section, can
 from app.storage.repository import Repository
 from app.texts import DEFAULTS
 
 router = Router(name="menu")
-
-# Разделы, которые появятся на этапах 2–3 плана (ТЗ, раздел 9)
-_LATER = {
-    kb.BTN_STATS: (Section.STATS, "Статистика и сводные таблицы появятся на этапе 3."),
-    kb.BTN_START: (Section.ONBOARDING, "Чек-лист «Мой старт» появится на этапе 3."),
-}
 
 
 @router.message(Registered(), F.text == kb.BTN_HELP)
@@ -33,15 +26,6 @@ async def help_(message: Message, repo: Repository) -> None:
 async def menu(message: Message, state: FSMContext, employee: Employee, is_newbie: bool) -> None:
     await state.clear()
     await message.answer("Главное меню", reply_markup=kb.main_menu(employee.role, is_newbie))
-
-
-@router.message(Registered(), F.text.in_(set(_LATER)))
-async def later(message: Message, employee: Employee, is_newbie: bool) -> None:
-    section, text = _LATER[message.text]
-    if not can(employee.role, section, is_newbie=is_newbie):
-        await message.answer("Этот раздел вам недоступен.")
-        return
-    await message.answer(f"🛠 {text}")
 
 
 @router.message(Command("id"))

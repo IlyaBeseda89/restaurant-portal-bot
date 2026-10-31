@@ -108,6 +108,8 @@ class Harness:
             menu,
             products,
             registration,
+            start,
+            stats,
             training_requests,
             trainings,
         )
@@ -115,7 +117,8 @@ class Harness:
         # Роутеры — модульные объекты, в aiogram их можно подключить лишь раз.
         # Для отдельного диспетчера на каждый тест отцепляем их от прошлого.
         for r in (registration.router, feedback.chat_router, knowledge.router, products.router,
-                  trainings.router, training_requests.router, admin.router, feedback.router,
+                  trainings.router, training_requests.router, admin.router, start.router, stats.router,
+                  feedback.router,
                   menu.router):
             r._parent_router = None
 

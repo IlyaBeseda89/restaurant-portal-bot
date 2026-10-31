@@ -7,6 +7,8 @@ from app.handlers import (
     menu,
     products,
     registration,
+    start,
+    stats,
     training_requests,
     trainings,
 )
@@ -23,6 +25,8 @@ def build_router() -> Router:
         trainings.router,
         training_requests.router,
         admin.router,
+        start.router,
+        stats.router,
         feedback.router,
         menu.router,
     )
