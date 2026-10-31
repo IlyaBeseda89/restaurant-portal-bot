@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -240,6 +241,75 @@ class Repository:
             if p.id == product_id:
                 return p
         return None
+
+    # ---------- админка: правки из бота ----------
+
+    @staticmethod
+    def new_invite_code() -> str:
+        alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        return "".join(secrets.choice(alphabet) for _ in range(8))
+
+    async def add_employee(self, full_name: str, restaurant_id: str, position: str, role: Role) -> Employee:
+        """Новый сотрудник с пригласительным кодом. Telegram привяжется при входе по ссылке."""
+        async with self._id_lock:
+            employee_id = await self._next_id(S.EMPLOYEES)
+            code = self.new_invite_code()
+            await self.backend.append(S.EMPLOYEES, {
+                "id": employee_id, "telegram_id": "", "фио": full_name.strip(), "телефон": "",
+                "ресторан_id": restaurant_id, "должность": position.strip(), "роль": role.value,
+                "дата_старта": self.now().strftime("%d.%m.%Y"), "дата_добавления": self.now().strftime("%d.%m.%Y"),
+                "активен": "да", "пригласительный_код": code,
+            })
+        created = await self.get_employee(employee_id)
+        assert created is not None
+        return created
+
+    async def update_employee(self, employee_id: str, **changes: str) -> bool:
+        return await self.backend.update(S.EMPLOYEES, "id", employee_id, changes)
+
+    async def find_employees(self, query: str, limit: int = 8) -> list[Employee]:
+        q = normalize_name(query)
+        if not q:
+            return []
+        found = [e for e in await self.list_employees() if q in normalize_name(e.full_name)]
+        return sorted(found, key=lambda e: normalize_name(e.full_name))[:limit]
+
+    async def add_material(
+        self, category_id: str, title: str, kind: str, url: str, concept_id: str, for_newbies: bool,
+    ) -> str:
+        async with self._id_lock:
+            material_id = await self._next_id(S.MATERIALS)
+            rows = await self.backend.read_all(S.MATERIALS)
+            order = 1 + max(
+                (parse_int(r.get("порядок"), 0) for r in rows if r.get("категория_id") == category_id), default=0,
+            )
+            await self.backend.append(S.MATERIALS, {
+                "id": material_id, "категория_id": category_id, "название": title.strip(), "тип": kind,
+                "url": url.strip(), "концепция_id": concept_id, "для_новичков": "да" if for_newbies else "нет",
+                "порядок": str(order), "активен": "да",
+            })
+        return material_id
+
+    async def update_material(self, material_id: str, **changes: str) -> bool:
+        return await self.backend.update(S.MATERIALS, "id", material_id, changes)
+
+    async def add_product(
+        self, concept_id: str, category: str, name: str, photo_url: str, ingredients: str,
+        allergens: str, method: str, pairings: str, storytelling: str,
+    ) -> str:
+        async with self._id_lock:
+            product_id = await self._next_id(S.PRODUCTS)
+            await self.backend.append(S.PRODUCTS, {
+                "id": product_id, "концепция_id": concept_id, "категория_меню": category.strip(),
+                "название": name.strip(), "фото_url": photo_url.strip(), "состав": ingredients,
+                "аллергены": allergens, "метод_приготовления": method, "сочетания": pairings,
+                "сторителлинг": storytelling, "дата_обновления": self.now().strftime("%d.%m.%Y"),
+                "активен": "да",
+            })
+        return product_id
+
+    async def update_product(self, product_id: str, **changes: str) -> bool:
+        return await self.backend.update(S.PRODUCTS, "id", product_id, changes)
 
     # ---------- тренинги: темы, расписание, заявки ----------
 

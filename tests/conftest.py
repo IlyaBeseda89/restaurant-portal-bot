@@ -52,6 +52,8 @@ class FakeSession(BaseSession):
                 )
                 for i, _ in enumerate(method.media)
             ]
+        if name == "GetMe":
+            return User(id=42, is_bot=True, first_name="Bot", username="portal_test_bot")
         if name == "CopyMessage":
             return MessageId(message_id=self._next_id)
         return True
@@ -100,6 +102,7 @@ class Harness:
     def __init__(self, repo: Repository, config: Config) -> None:
         from app.__main__ import build_dispatcher
         from app.handlers import (
+            admin,
             feedback,
             knowledge,
             menu,
@@ -112,7 +115,8 @@ class Harness:
         # Роутеры — модульные объекты, в aiogram их можно подключить лишь раз.
         # Для отдельного диспетчера на каждый тест отцепляем их от прошлого.
         for r in (registration.router, feedback.chat_router, knowledge.router, products.router,
-                  trainings.router, training_requests.router, feedback.router, menu.router):
+                  trainings.router, training_requests.router, admin.router, feedback.router,
+                  menu.router):
             r._parent_router = None
 
         self.repo = repo
