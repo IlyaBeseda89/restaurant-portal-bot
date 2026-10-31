@@ -60,7 +60,7 @@ async def topic_chosen(call: CallbackQuery, state: FSMContext, repo: Repository)
     if key == "new":
         await state.set_state(AddEvent.new_topic)
         await call.message.answer("Название новой темы?", reply_markup=cancel_kb())
-            return
+        return
     topic = await repo.get_topic(key)
     if topic is None:
         await call.message.answer("Тема не найдена.")
