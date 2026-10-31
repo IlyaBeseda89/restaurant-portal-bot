@@ -1,5 +1,4 @@
 from app.groups import LEADERS, MANAGEMENT, STAFF, allows, default_group, group_of
-from app.keyboards import BTN_KNOWLEDGE
 from app.roles import Role
 from tests.conftest import register
 
