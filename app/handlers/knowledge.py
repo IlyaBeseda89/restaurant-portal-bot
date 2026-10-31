@@ -9,9 +9,9 @@ from __future__ import annotations
 import logging
 
 from aiogram import F, Router, html
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
-from app.drive import direct_download_url
+from app.drive import direct_download_url, download_drive_file
 from app.handlers.common import Registered
 from app.keyboards import BTN_KNOWLEDGE, inline
 from app.models import Employee
@@ -19,6 +19,9 @@ from app.scope import choose, effective_concept, label, picker
 from app.storage.repository import Repository
 
 log = logging.getLogger(__name__)
+
+# id материала → file_id в Telegram: повторная отправка мгновенная, без скачивания
+_sent_files: dict[str, str] = {}
 
 router = Router(name="knowledge")
 router.message.filter(Registered())
@@ -104,11 +107,19 @@ async def material(call: CallbackQuery, repo: Repository, employee: Employee) ->
         return
     repo.log(employee.id, "просмотр материала", m.id)
     icon = KIND_ICON.get(m.kind.lower(), "🔗")
-    direct = direct_download_url(m.url) if m.kind.lower() == "файл" else None
-    if direct:
+    if m.kind.lower() == "файл" and direct_download_url(m.url):
         # Файл с Google Диска отправляем прямо в чат: сотруднику не нужен вход в Google
+        caption = f"{icon} <b>{html.quote(m.title)}</b>"
         try:
-            await call.message.answer_document(direct, caption=f"{icon} <b>{html.quote(m.title)}</b>")
+            cached = _sent_files.get(m.id)
+            if cached:
+                await call.message.answer_document(cached, caption=caption)
+            else:
+                data, name = await download_drive_file(m.url)
+                filename = name or f"{m.title}.pdf"
+                sent = await call.message.answer_document(BufferedInputFile(data, filename=filename), caption=caption)
+                if sent.document:
+                    _sent_files[m.id] = sent.document.file_id
             await call.answer()
             return
         except Exception:
