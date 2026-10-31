@@ -93,3 +93,30 @@ async def test_hr_knowledge_base_per_concept(h):
     await h.click(206, "kb:cat:menu")
     titles = " ".join(texts(last_edit(h).reply_markup))
     assert "Меню бистро" in titles and "Итальянская" not in titles
+
+
+async def test_flag_gives_any_employee_all_concepts(h, repo):
+    from app.scope import concept_key
+
+    code, fio = await other_employee(repo, ресторан_id="r1", **{"все_концепции": "да"})  # PR-директор
+    await register(h, 207, f"employee_{code}", fio)
+    await h.send(207, BTN_PRODUCTS)
+    assert texts(h.last_markup(207)) == ["Траттория", "Бистро"]
+    await h.click(207, f"sc:pr:{concept_key('bistro')}")
+    assert "Бургеры" in texts(last_edit(h).reply_markup)
+
+
+async def test_flag_no_restricts_even_privileged_role(h, repo):
+    code, fio = await other_employee(
+        repo, ресторан_id="r3", роль="ТУ", **{"все_концепции": "нет"}
+    )
+    await register(h, 208, f"tu_{code}", fio)
+    await h.send(208, BTN_PRODUCTS)
+    assert texts(h.last_markup(208)) == ["Бургеры", "Напитки"]  # только Бистро, выбора нет
+
+
+async def test_empty_flag_follows_role(h, repo):
+    code, fio = await other_employee(repo, ресторан_id="r1")  # обычный сотрудник, флаг пуст
+    await register(h, 209, f"employee_{code}", fio)
+    await h.send(209, BTN_PRODUCTS)
+    assert "Бургеры" not in texts(h.last_markup(209))

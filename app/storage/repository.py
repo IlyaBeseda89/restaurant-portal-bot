@@ -38,6 +38,9 @@ def _employee(row: Row) -> Employee | None:
         active=parse_bool(row.get("активен"), default=True),
         invite_code=row.get("пригласительный_код", "").strip(),
         newbie_override=parse_bool(newbie_raw) if newbie_raw else None,
+        all_concepts=(
+            parse_bool(row.get("все_концепции")) if row.get("все_концепции", "").strip() else None
+        ),
     )
 
 
@@ -126,16 +129,20 @@ class Repository:
     async def concept_of(self, employee: Employee) -> str | None:
         """К какой концепции относится сотрудник.
 
-        None  — работает со всеми концепциями (ТУ, менеджер по обучению, HR);
+        None  — работает со всеми концепциями: ТУ, менеджер по обучению, HR, а также любой,
+                кому в таблице «Сотрудники» стоит «да» в колонке «все_концепции»
+                («нет» там отключает это даже для таких ролей);
         "…"   — id его концепции (по ресторану, а у модератора по листу «Концепции»);
         ""    — определить не удалось (нет ресторана, у ресторана нет концепции):
                 такой сотрудник видит только общие материалы, чужое не показывается.
         """
+        if employee.all_concepts is True:
+            return None
         if employee.role is Role.MODERATOR:
             for c in await self.list_concepts():
                 if c.moderator_id and c.moderator_id == employee.id:
                     return c.id
-        elif employee.role in CROSS_CONCEPT_ROLES:
+        elif employee.all_concepts is None and employee.role in CROSS_CONCEPT_ROLES:
             return None
         if employee.restaurant_id:
             restaurant = await self.get_restaurant(employee.restaurant_id)

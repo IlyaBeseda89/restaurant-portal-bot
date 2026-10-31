@@ -52,6 +52,7 @@ class Employee:
     active: bool
     invite_code: str
     newbie_override: bool | None  # None = считать по дате старта
+    all_concepts: bool | None = None  # None = решает роль; True/False = задано в таблице
 
     def is_newbie(self, today: date, newbie_days: int) -> bool:
         if self.newbie_override is not None:
