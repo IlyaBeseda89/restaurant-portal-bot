@@ -508,6 +508,19 @@ class Repository:
             await self.update_event(event_id, вместимость=str(capacity) if capacity > 0 else "")
             return await self.promote_queue(event_id)
 
+    async def set_attendance(self, event_id: str, employee_id: str, came: bool) -> None:
+        """Отметка присутствия после тренинга: «был» или «не был» (запись создаётся, если её не было)."""
+        async with self._id_lock:
+            await self._set_enrollment(event_id, employee_id, "был" if came else "не был")
+
+    async def set_rating(self, event_id: str, employee_id: str, rating: int) -> bool:
+        """Оценка тренинга от 1 до 5. Ставить может только тот, кто отмечен как «был»."""
+        async with self._id_lock:
+            current = await self.get_enrollment(event_id, employee_id)
+            if current is None or current.status != "был" or not 1 <= rating <= 5:
+                return False
+            return await self.backend.update(S.ENROLLMENTS, "id", current.id, {"оценка": str(rating)})
+
     @staticmethod
     def _request(r: Row) -> TrainingRequest:
         return TrainingRequest(
