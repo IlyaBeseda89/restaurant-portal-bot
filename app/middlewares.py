@@ -38,6 +38,8 @@ class EmployeeMiddleware(BaseMiddleware):
             employee = await self.repo.get_employee_by_telegram(user.id)
             if employee is not None and not employee.active:
                 employee = None
+        if employee is not None:  # для журнала: сводка по дням ведётся в разрезе концепции
+            self.repo.remember_concept(employee.id, await self.repo.concept_of(employee))
         data["employee"] = employee
         data["is_newbie"] = bool(
             employee and employee.is_newbie(self.repo.now().date(), self.config.newbie_days)

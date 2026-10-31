@@ -25,6 +25,8 @@ class Config:
     newbie_days: int
     cache_ttl: float
     timezone: str
+    activity_path: str = "data/activity.sqlite3"  # журнал активности при STORAGE=sheets
+    activity_days: int = 60  # сколько дней хранить журнал
 
     @classmethod
     def from_env(cls) -> Config:
@@ -40,6 +42,8 @@ class Config:
             newbie_days=int(os.getenv("NEWBIE_DAYS", "28")),
             cache_ttl=float(os.getenv("CACHE_TTL_SECONDS", "60")),
             timezone=os.getenv("TIMEZONE", "Europe/Moscow"),
+            activity_path=os.getenv("ACTIVITY_SQLITE_PATH", "data/activity.sqlite3"),
+            activity_days=int(os.getenv("ACTIVITY_DAYS", "60")),
         )
 
 
@@ -50,13 +54,22 @@ def build_repository(config: Config):
     if config.storage == "sheets":
         from app.storage.sheets_backend import SheetsBackend
 
+        from app.storage.sqlite_backend import SqliteBackend
+
         inner = SheetsBackend(config.google_credentials_file, config.spreadsheet_id)
         ttl = config.cache_ttl
+        # Журнал активности не кладём в таблицу: он быстро растёт и замедляет её
+        activity = SqliteBackend(config.activity_path)
+        activity._ensure_sync()
     elif config.storage == "sqlite":
         from app.storage.sqlite_backend import SqliteBackend
 
         inner = SqliteBackend(config.sqlite_path)
         ttl = 0.0  # локальная база быстрая, кэш не нужен
+        activity = None
     else:
         raise ValueError(f"Неизвестное STORAGE={config.storage!r}: ожидается sqlite или sheets")
-    return Repository(CachedBackend(inner, ttl=ttl), timezone=config.timezone)
+    return Repository(
+        CachedBackend(inner, ttl=ttl), timezone=config.timezone,
+        activity_backend=activity, activity_days=config.activity_days,
+    )

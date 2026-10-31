@@ -10,7 +10,7 @@ import asyncio
 
 import gspread
 
-from app.schema import TABLES
+from app.schema import LOCAL_ONLY, TABLES
 from app.storage.backend import Row
 
 
@@ -78,6 +78,8 @@ class SheetsBackend:
     def _ensure_sync(self) -> None:
         existing = {ws.title: ws for ws in self._book.worksheets()}
         for table, columns in TABLES.items():
+            if table in LOCAL_ONLY:
+                continue
             ws = existing.get(table)
             if ws is None:
                 ws = self._book.add_worksheet(title=table, rows=200, cols=max(len(columns), 10))
