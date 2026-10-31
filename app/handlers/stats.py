@@ -89,6 +89,14 @@ async def _summary(repo: Repository, config: Config, viewer: Employee) -> str:
     else:
         lines.append("Заявок нет.")
 
+    events = {e.id: e for e in await repo.list_events() if e.status == "проведён"}
+    enrollments = [e for e in await repo.list_enrollments() if e.event_id in events and e.employee_id in ids]
+    if events:
+        came = [e for e in enrollments if e.status == "был"]
+        rated = [e.rating for e in came if e.rating]
+        lines.append(f"Проведено тренингов: {len(events)}, посещений: {len(came)}"
+                     + (f", средняя оценка {sum(rated) / len(rated):.1f} из 5" if rated else ""))
+
     feedback = [
         f for f in await repo.feedback_since(FEEDBACK_DAYS)
         if restaurants is None or f.get("ресторан_id", "").strip() in restaurants

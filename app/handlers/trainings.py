@@ -20,7 +20,7 @@ from app.handlers.common import HasAccess, Registered
 from app.ics import build_ics
 from app.keyboards import BTN_SCHEDULE, BTN_TRAININGS, cancel_kb, inline, main_menu
 from app.models import Employee, Event, concept_matches, parse_datetime
-from app.notify import event_audience, send_to
+from app.notify import event_audience, event_participants, send_to
 from app.roles import Section
 from app.scope import concept_key
 from app.storage.repository import Repository
@@ -192,6 +192,8 @@ manager_msg = HasAccess(Section.SCHEDULE_EDIT)
 
 
 def _manager_buttons(event: Event):
+    if event.status == "проведён":
+        return inline([[("📋 Присутствие и оценки", f"sch:att:{event.id}")]])
     if not event.active:
         return None
     return inline([
@@ -239,8 +241,8 @@ async def mark_done(call: CallbackQuery, repo: Repository, employee: Employee) -
         await repo.update_request(request.id, статус="проведена")
     repo.log(employee.id, "тренинг проведён", event.id)
     event.status = "проведён"
-    await call.message.edit_text(event_card(event, topic))
-    await call.answer("Отмечено ✅")
+    await call.message.edit_text(event_card(event, topic), reply_markup=_manager_buttons(event))
+    await call.answer("Отмечено ✅ Теперь можно отметить, кто был на тренинге.")
 
 
 @router.callback_query(F.data.startswith("sch:cancel:"), HasAccess(Section.SCHEDULE_EDIT))
@@ -421,3 +423,92 @@ async def set_concept(call: CallbackQuery, repo: Repository, employee: Employee)
     repo.log(employee.id, "тренинг: концепция", event.id)
     await call.message.edit_text(event_card(event, topic), reply_markup=_manager_buttons(event))
     await call.answer("Сохранено ✅")
+
+
+# ------------------------------------------------- присутствие и оценки
+
+MAX_ATTENDEES = 60
+MARK = {"был": "✅", "не был": "❌"}
+
+
+async def _attendance_view(repo: Repository, event: Event):
+    topic = await repo.get_topic(event.topic_id)
+    people, missing = await event_participants(repo, event)
+    status = {e.employee_id: e for e in await repo.list_enrollments(event.id)}
+    rows = []
+    for person in people[:MAX_ATTENDEES]:
+        mark = MARK.get(status[person.id].status if person.id in status else "", "⬜")
+        rows.append([(f"{mark} {person.full_name}", f"sch:at:{event.id}:{person.id}")])
+    came = [e for e in status.values() if e.status == "был"]
+    rated = [e.rating for e in came if e.rating]
+    lines = [event_card(event, topic), "", "📋 <b>Присутствие</b>", "Нажмите на имя, чтобы отметить: ⬜ не отмечен, ✅ был, ❌ не был."]
+    if not people:
+        lines.append("Участников нет: в заявке никого не нашлось и никто не записался.")
+    if missing:
+        lines.append("Не нашёл в боте: " + html.quote(", ".join(missing)))
+    lines.append(f"Были: {len(came)}" + (f". Оценка: {sum(rated) / len(rated):.1f} из 5 ({len(rated)})" if rated else ""))
+    if came:
+        rows.append([("📨 Запросить оценки", f"sch:rate:{event.id}")])
+    return "\n".join(lines), inline(rows) if rows else None
+
+
+@router.callback_query(F.data.regexp(r"^sch:att:\w+$"), HasAccess(Section.SCHEDULE_EDIT))
+async def attendance_open(call: CallbackQuery, repo: Repository) -> None:
+    event = await repo.get_event(call.data.removeprefix("sch:att:"))
+    if event is None or event.status != "проведён":
+        await call.answer("Сначала отметьте тренинг проведённым.", show_alert=True)
+        return
+    text, markup = await _attendance_view(repo, event)
+    await call.message.answer(text, reply_markup=markup)
+    await call.answer()
+
+
+@router.callback_query(F.data.regexp(r"^sch:att:\w+:\w+$"), HasAccess(Section.SCHEDULE_EDIT))
+async def attendance_toggle(call: CallbackQuery, repo: Repository, employee: Employee) -> None:
+    event_id, _, person_id = call.data.removeprefix("sch:att:").partition(":")
+    event = await repo.get_event(event_id)
+    people, _ = await event_participants(repo, event) if event else ([], [])
+    if event is None or event.status != "проведён" or person_id not in {p.id for p in people}:
+        await call.answer("Не получилось, откройте список заново.", show_alert=True)
+        return
+    current = await repo.get_enrollment(event.id, person_id)
+    await repo.set_attendance(event.id, person_id, came=not (current and current.status == "был"))
+    repo.log(employee.id, "тренинг: присутствие", event.id)
+    text, markup = await _attendance_view(repo, event)
+    await call.message.edit_text(text, reply_markup=markup)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("sch:rate:"), HasAccess(Section.SCHEDULE_EDIT))
+async def ask_ratings(call: CallbackQuery, repo: Repository, bot: Bot, employee: Employee) -> None:
+    event, topic = await _event_and_topic(repo, call.data.removeprefix("sch:rate:"))
+    if event is None or event.status != "проведён":
+        await call.answer("Тренинг не найден.", show_alert=True)
+        return
+    asked = 0
+    for enrollment in await repo.list_enrollments(event.id):
+        if enrollment.status != "был" or enrollment.rating:
+            continue
+        person = await repo.get_employee(enrollment.employee_id)
+        if person is None:
+            continue
+        name = html.quote(topic.name) if topic else "тренинг"
+        asked += await send_to(
+            bot, [person], f"⭐ Как вам тренинг «{name}»? Оцените от 1 до 5.",
+            inline([[(str(n), f"tr:rt:{event.id}:{n}") for n in range(1, 6)]]),
+        )
+    repo.log(employee.id, "тренинг: запрос оценок", event.id)
+    await call.answer(f"Запрос отправлен: {asked}." if asked else "Всем отмеченным уже отправлено или оценки есть.",
+                      show_alert=True)
+
+
+@router.callback_query(F.data.startswith("tr:rt:"))
+async def rate(call: CallbackQuery, repo: Repository, employee: Employee) -> None:
+    event_id, _, value = call.data.removeprefix("tr:rt:").partition(":")
+    ok = value.isdigit() and await repo.set_rating(event_id, employee.id, int(value))
+    if not ok:
+        await call.answer("Оценить может только участник тренинга.", show_alert=True)
+        return
+    repo.log(employee.id, "тренинг: оценка", event_id)
+    await call.message.edit_text(f"Спасибо за оценку: {value} из 5 ⭐")
+    await call.answer()

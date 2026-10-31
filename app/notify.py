@@ -48,3 +48,23 @@ async def send_to(bot: Bot, employees: list[Employee], text: str, markup=None) -
         except Exception:
             log.warning("Не удалось отправить сообщение сотруднику %s", e.id, exc_info=True)
     return sent
+
+
+async def event_participants(repo: Repository, event: Event) -> tuple[list[Employee], list[str]]:
+    """Те, кто должен прийти на тренинг: названные в заявке и записавшиеся. Без заявителя.
+
+    Второй результат: имена из заявки, которых бот не нашёл.
+    """
+    people: dict[str, Employee] = {}
+    missing: list[str] = []
+    request = next((r for r in await repo.list_requests() if r.event_id == event.id), None)
+    if request is not None:
+        found, missing = await repo.match_participants(request.participant_names)
+        for e in found:
+            people[e.id] = e
+    for enrollment in await repo.list_enrollments(event.id):
+        if enrollment.status in {"записан", "был", "не был"}:
+            e = await repo.get_employee(enrollment.employee_id)
+            if e:
+                people[e.id] = e
+    return sorted(people.values(), key=lambda e: e.full_name), missing
