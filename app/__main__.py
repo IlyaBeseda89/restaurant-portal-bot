@@ -15,6 +15,7 @@ from aiogram.types import BotCommand
 from app.config import Config, build_repository
 from app.handlers import build_router
 from app.middlewares import EmployeeMiddleware, MenuResetMiddleware
+from app.reminders import remind_forever
 from app.storage.repository import Repository
 
 log = logging.getLogger("portal")
@@ -56,12 +57,14 @@ async def main() -> None:
     dp = build_dispatcher(repo, config)
 
     flusher = asyncio.create_task(flush_activity_forever(repo))
+    reminder = asyncio.create_task(remind_forever(bot, repo))
     me = await bot.get_me()
     log.info("Бот @%s запущен, хранилище: %s", me.username, config.storage)
     try:
         await dp.start_polling(bot)
     finally:
         flusher.cancel()
+        reminder.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await flusher
         await repo.flush_activity()

@@ -32,7 +32,7 @@ class FakeSession(BaseSession):
         self.calls.append(method)
         name = type(method).__name__
         self._next_id += 1
-        if name in {"SendMessage", "EditMessageText", "SendPhoto"}:
+        if name in {"SendMessage", "EditMessageText", "SendPhoto", "SendDocument"}:
             chat_id = getattr(method, "chat_id", None) or 1
             return Message(
                 message_id=self._next_id, date=dt.datetime.now(),
@@ -85,11 +85,14 @@ async def repo() -> Repository:
 class Harness:
     def __init__(self, repo: Repository, config: Config) -> None:
         from app.__main__ import build_dispatcher
-        from app.handlers import feedback, knowledge, menu, products, registration
+        from app.handlers import (
+            feedback, knowledge, menu, products, registration, training_requests, trainings,
+        )
 
         # Роутеры — модульные объекты, в aiogram их можно подключить лишь раз.
         # Для отдельного диспетчера на каждый тест отцепляем их от прошлого.
-        for r in (registration.router, feedback.chat_router, knowledge.router, products.router, feedback.router, menu.router):
+        for r in (registration.router, feedback.chat_router, knowledge.router, products.router,
+                  trainings.router, training_requests.router, feedback.router, menu.router):
             r._parent_router = None
 
         self.repo = repo
