@@ -99,7 +99,8 @@ async def cmd_demo(repo: Repository) -> None:
     await repo.backend.ensure_tables()
     if await repo.backend.read_all(S.EMPLOYEES):
         await _demo_products(repo)
-        print("В таблице «Сотрудники» уже есть данные, их не трогаю. Демо-карточки блюд добавлены, если лист был пуст.")
+        await _demo_trainings(repo)
+        print("В таблице «Сотрудники» уже есть данные, их не трогаю. Демо-карточки блюд и тренинги добавлены, если листы были пусты.")
         return
     b = repo.backend
     today = date.today()
