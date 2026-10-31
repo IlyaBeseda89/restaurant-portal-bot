@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+import ssl
 from urllib.parse import unquote
 
 import aiohttp
+import certifi
 
 _ID = re.compile(r"(?:/file/d/|[?&]id=)([\w-]{10,})")
 MAX_BYTES = 45 * 1024 * 1024  # потолок Telegram для ботов 50 МБ, оставляем запас
@@ -36,7 +38,12 @@ async def download_drive_file(url: str, limit: int = MAX_BYTES) -> tuple[bytes, 
     if direct is None:
         raise DriveError("не ссылка на Диск")
     timeout = aiohttp.ClientTimeout(total=90)
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session, session.get(direct) as resp:
+    # Свои сертификаты (certifi), как у Telegram-клиента: на Mac системных Python их часто нет
+    connector = aiohttp.TCPConnector(ssl=ssl.create_default_context(cafile=certifi.where()))
+    async with (
+        aiohttp.ClientSession(timeout=timeout, connector=connector, trust_env=True) as session,
+        session.get(direct) as resp,
+    ):
         if resp.status != 200:
             raise DriveError(f"Диск ответил {resp.status}")
         if "text/html" in resp.headers.get("Content-Type", ""):
