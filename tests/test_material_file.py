@@ -16,8 +16,10 @@ def test_drive_urls():
 @pytest.fixture(autouse=True)
 def _clear_cache():
     knowledge._sent_files.clear()
+    knowledge._sent_slides.clear()
     yield
     knowledge._sent_files.clear()
+    knowledge._sent_slides.clear()
 
 
 async def add_file_material(repo):
@@ -92,3 +94,72 @@ async def test_read_limited_joins_all_chunks_and_enforces_limit():
     assert await read_limited(chunks(b"%PDF", b"-1.3 ", b"end"), 100) == b"%PDF-1.3 end"
     with pytest.raises(DriveError):
         await read_limited(chunks(b"x" * 60, b"y" * 60), 100)
+
+
+def make_pdf(pages: int) -> bytes:
+    import pymupdf
+
+    doc = pymupdf.open()
+    for i in range(pages):
+        page = doc.new_page(width=1440, height=810)
+        page.insert_text((100, 400), f"Slide {i + 1}", fontsize=60)
+    return doc.tobytes()
+
+
+def photos_sent(h):
+    out = []
+    for c in h.session.calls:
+        name = type(c).__name__
+        if name == "SendMediaGroup":
+            out.append(("group", len(c.media)))
+        elif name == "SendPhoto":
+            out.append(("photo", 1))
+    return out
+
+
+async def open_pdf_material(h, repo, monkeypatch, pages):
+    calls = []
+
+    async def fake_download(url):
+        calls.append(url)
+        return make_pdf(pages), "x.pdf"
+
+    monkeypatch.setattr(knowledge, "download_drive_file", fake_download)
+    await add_file_material(repo)
+    await register(h, 100, "employee_DEMOEMP1", "Петрова Анна Сергеевна")
+    await h.click(100, "kb:mat:50")
+    return calls
+
+
+async def test_pdf_is_sent_as_slide_albums(h, repo, monkeypatch):
+    calls = await open_pdf_material(h, repo, monkeypatch, pages=12)
+    assert photos_sent(h) == [("group", 10), ("group", 2)]
+    assert not documents(h)
+    assert "kb:pdf:50" in str(h.last_markup(100))
+    # второй раз слайды берутся из кэша, Диск не трогаем
+    await h.click(100, "kb:mat:50")
+    assert len(calls) == 1 and len(photos_sent(h)) == 4
+
+
+async def test_single_leftover_slide_sent_as_photo(h, repo, monkeypatch):
+    await open_pdf_material(h, repo, monkeypatch, pages=11)
+    assert photos_sent(h) == [("group", 10), ("photo", 1)]
+
+
+async def test_pdf_button_sends_document(h, repo, monkeypatch):
+    await open_pdf_material(h, repo, monkeypatch, pages=2)
+    await h.click(100, "kb:pdf:50")
+    assert len(documents(h)) == 1
+
+
+def test_render_pdf_limits():
+    import pytest
+
+    from app.slides import render_pdf
+
+    pages = render_pdf(make_pdf(3))
+    assert len(pages) == 3 and pages[0][:2] == b"\xff\xd8"
+    with pytest.raises(ValueError):
+        render_pdf(make_pdf(3), max_pages=2)
+    with pytest.raises(Exception):  # noqa: B017
+        render_pdf(b"not a pdf")

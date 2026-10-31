@@ -8,7 +8,7 @@ import pytest_asyncio
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.methods import TelegramMethod
-from aiogram.types import Chat, Message, MessageId, Update, User
+from aiogram.types import Chat, Message, MessageId, PhotoSize, Update, User
 
 from app.cli import cmd_demo
 from app.config import Config
@@ -32,12 +32,26 @@ class FakeSession(BaseSession):
         self.calls.append(method)
         name = type(method).__name__
         self._next_id += 1
-        if name in {"SendMessage", "EditMessageText", "SendPhoto", "SendDocument"}:
+        if name == "SendPhoto":
+            return Message(
+                message_id=self._next_id, date=dt.datetime.now(), chat=Chat(id=method.chat_id, type="private"),
+                photo=[PhotoSize(file_id=f"fid-{self._next_id}", file_unique_id="u", width=10, height=10)],
+                caption=getattr(method, "caption", None),
+            )
+        if name in {"SendMessage", "EditMessageText", "SendDocument"}:
             chat_id = getattr(method, "chat_id", None) or 1
             return Message(
                 message_id=self._next_id, date=dt.datetime.now(),
                 chat=Chat(id=chat_id, type="private"), text=getattr(method, "text", None) or getattr(method, "caption", None) or "",
             )
+        if name == "SendMediaGroup":
+            return [
+                Message(
+                    message_id=self._next_id + i, date=dt.datetime.now(), chat=Chat(id=method.chat_id, type="private"),
+                    photo=[PhotoSize(file_id=f"fid-{self._next_id}-{i}", file_unique_id=f"u{i}", width=10, height=10)],
+                )
+                for i, _ in enumerate(method.media)
+            ]
         if name == "CopyMessage":
             return MessageId(message_id=self._next_id)
         return True
@@ -86,7 +100,13 @@ class Harness:
     def __init__(self, repo: Repository, config: Config) -> None:
         from app.__main__ import build_dispatcher
         from app.handlers import (
-            feedback, knowledge, menu, products, registration, training_requests, trainings,
+            feedback,
+            knowledge,
+            menu,
+            products,
+            registration,
+            training_requests,
+            trainings,
         )
 
         # Роутеры — модульные объекты, в aiogram их можно подключить лишь раз.

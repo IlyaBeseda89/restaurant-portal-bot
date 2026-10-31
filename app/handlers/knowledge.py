@@ -9,19 +9,22 @@ from __future__ import annotations
 import logging
 
 from aiogram import F, Router, html
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto, Message
 
 from app.drive import direct_download_url, download_drive_file
 from app.handlers.common import Registered
 from app.keyboards import BTN_KNOWLEDGE, inline
 from app.models import Employee
 from app.scope import choose, effective_concept, label, picker
+from app.slides import render_pdf_async
 from app.storage.repository import Repository
 
 log = logging.getLogger(__name__)
 
 # id материала → file_id в Telegram: повторная отправка мгновенная, без скачивания
-_sent_files: dict[str, str] = {}
+_sent_files: dict[str, str] = {}  # исходный файл-документ
+_sent_slides: dict[str, list[str]] = {}  # слайды-картинки презентации
+ALBUM_SIZE = 10  # больше 10 фото в одном альбоме Telegram не принимает
 
 router = Router(name="knowledge")
 router.message.filter(Registered())
@@ -108,18 +111,9 @@ async def material(call: CallbackQuery, repo: Repository, employee: Employee) ->
     repo.log(employee.id, "просмотр материала", m.id)
     icon = KIND_ICON.get(m.kind.lower(), "🔗")
     if m.kind.lower() == "файл" and direct_download_url(m.url):
-        # Файл с Google Диска отправляем прямо в чат: сотруднику не нужен вход в Google
-        caption = f"{icon} <b>{html.quote(m.title)}</b>"
+        # Файл с Google Диска показываем прямо в чате: сотруднику не нужен вход в Google
         try:
-            cached = _sent_files.get(m.id)
-            if cached:
-                await call.message.answer_document(cached, caption=caption)
-            else:
-                data, name = await download_drive_file(m.url)
-                filename = name or f"{m.title}.pdf"
-                sent = await call.message.answer_document(BufferedInputFile(data, filename=filename), caption=caption)
-                if sent.document:
-                    _sent_files[m.id] = sent.document.file_id
+            await _send_drive_material(call, m, icon)
             await call.answer()
             return
         except Exception:
@@ -131,4 +125,81 @@ async def material(call: CallbackQuery, repo: Repository, employee: Employee) ->
         )
     else:
         await call.message.answer(f"{icon} <b>{html.quote(m.title)}</b>\n\nСсылка пока не указана.")
+    await call.answer()
+
+
+PDF_BUTTON = "📄 Скачать PDF"
+
+
+async def _send_slides(message: Message, caption: str, photos: list) -> list[str]:
+    """Шлёт слайды альбомами по 10. photos: file_id или BufferedInputFile. Возвращает file_id отправленных."""
+    total = len(photos)
+    file_ids: list[str] = []
+    for start in range(0, total, ALBUM_SIZE):
+        chunk = photos[start:start + ALBUM_SIZE]
+        cap = caption if total <= ALBUM_SIZE else f"{caption}\nСлайды {start + 1}–{start + len(chunk)} из {total}"
+        if len(chunk) == 1:
+            sent = [await message.answer_photo(chunk[0], caption=cap)]
+        else:
+            media = [InputMediaPhoto(media=p, caption=cap if i == 0 else None) for i, p in enumerate(chunk)]
+            sent = await message.answer_media_group(media)
+        file_ids += [msg.photo[-1].file_id for msg in sent if msg.photo]
+    return file_ids
+
+
+async def _send_drive_material(call: CallbackQuery, m, icon: str) -> None:
+    caption = f"{icon} <b>{html.quote(m.title)}</b>"
+    pdf_markup = inline([[(PDF_BUTTON, f"kb:pdf:{m.id}")]])
+    cached = _sent_slides.get(m.id)
+    if cached:
+        await _send_slides(call.message, caption, cached)
+        await call.message.answer("Это вся презентация.", reply_markup=pdf_markup)
+        return
+    status = await call.message.answer("⏳ Готовлю слайды, это займёт несколько секунд…")
+    try:
+        data, name = await download_drive_file(m.url)
+        if not data.startswith(b"%PDF"):
+            filename = name or m.title
+            await call.message.answer_document(BufferedInputFile(data, filename=filename), caption=caption)
+            return
+        try:
+            pages = await render_pdf_async(data)
+        except Exception:
+            log.warning("Не удалось разбить PDF материала %s на слайды, шлю файлом", m.id, exc_info=True)
+            await call.message.answer_document(BufferedInputFile(data, filename=name or f"{m.title}.pdf"), caption=caption)
+            return
+        photos = [BufferedInputFile(jpg, filename=f"slide-{i}.jpg") for i, jpg in enumerate(pages, 1)]
+        ids = await _send_slides(call.message, caption, photos)
+        if len(ids) == len(pages):
+            _sent_slides[m.id] = ids
+        await call.message.answer("Это вся презентация.", reply_markup=pdf_markup)
+    finally:
+        try:
+            await status.delete()
+        except Exception:
+            log.debug("Не удалось удалить служебное сообщение", exc_info=True)
+
+
+@router.callback_query(F.data.startswith("kb:pdf:"))
+async def material_pdf(call: CallbackQuery, repo: Repository, employee: Employee) -> None:
+    m = await repo.get_material(call.data.removeprefix("kb:pdf:"))
+    concept = await effective_concept(repo, employee)
+    if m is None or not m.visible_for_concept(concept) or not direct_download_url(m.url):
+        await call.answer("Материал недоступен или скрыт.", show_alert=True)
+        return
+    caption = f"📎 <b>{html.quote(m.title)}</b>"
+    cached = _sent_files.get(m.id)
+    try:
+        if cached:
+            await call.message.answer_document(cached, caption=caption)
+        else:
+            data, name = await download_drive_file(m.url)
+            sent = await call.message.answer_document(
+                BufferedInputFile(data, filename=name or f"{m.title}.pdf"), caption=caption,
+            )
+            if sent.document:
+                _sent_files[m.id] = sent.document.file_id
+    except Exception:
+        log.warning("Не удалось отправить PDF материала %s", m.id, exc_info=True)
+        await call.message.answer("Не получилось отправить файл. Попробуйте позже.")
     await call.answer()
