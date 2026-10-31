@@ -63,3 +63,18 @@ async def test_other_material_stays_link(h, repo):
     await register(h, 100, "employee_DEMOEMP1", "Петрова Анна Сергеевна")
     await h.click(100, "kb:mat:1")
     assert not documents(h)
+
+
+def test_confirm_form_parsing():
+    from app.drive import looks_like_html, parse_confirm_form
+
+    page = (
+        '<html><form id="download-form" action="https://drive.usercontent.google.com/download" method="get">'
+        '<input type="hidden" name="id" value="ABC"><input type="hidden" name="confirm" value="t">'
+        '<input type="hidden" name="uuid" value="u&amp;1"></form></html>'
+    )
+    action, fields = parse_confirm_form(page)
+    assert action.endswith("/download") and fields == {"id": "ABC", "confirm": "t", "uuid": "u&1"}
+    assert looks_like_html(page.encode()) and looks_like_html(b'{"error": 1}')
+    assert not looks_like_html(b"%PDF-1.7 ...") and not looks_like_html(b"PK\x03\x04")
+    assert parse_confirm_form("<html>нет формы</html>") is None
