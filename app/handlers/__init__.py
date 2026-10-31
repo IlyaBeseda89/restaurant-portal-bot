@@ -1,6 +1,7 @@
 from aiogram import Router
 
 from app.handlers import (
+    admin,
     feedback,
     knowledge,
     menu,
@@ -21,6 +22,7 @@ def build_router() -> Router:
         products.router,
         trainings.router,
         training_requests.router,
+        admin.router,
         feedback.router,
         menu.router,
     )
