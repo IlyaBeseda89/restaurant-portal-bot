@@ -18,7 +18,10 @@ def test_access_matrix():
     assert not can(Role.DIRECTOR, Section.ONBOARDING)
     assert can(Role.EMPLOYEE, Section.ONBOARDING, is_newbie=True)
     assert can(Role.TRAINING_MANAGER, Section.REQUESTS_PROCESS)
-    assert not can(Role.HR, Section.TRAINING_REQUEST)
+    assert not can(Role.MODERATOR, Section.TRAINING_REQUEST)
+    # HR / администратор может всё, в том числе вести расписание и заявки
+    for section in (Section.TRAINING_REQUEST, Section.REQUESTS_PROCESS, Section.SCHEDULE_EDIT, Section.STATS):
+        assert can(Role.HR, section)
 
 
 def test_menu_by_role():
