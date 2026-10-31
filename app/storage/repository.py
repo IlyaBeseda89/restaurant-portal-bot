@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from app import groups
 from app import schema as S
 from app.models import (
     Category,
@@ -55,6 +56,7 @@ def _employee(row: Row) -> Employee | None:
         all_concepts=(
             parse_bool(row.get("все_концепции")) if row.get("все_концепции", "").strip() else None
         ),
+        group=row.get("группа", "").strip(),
     )
 
 
@@ -175,8 +177,9 @@ class Repository:
         return sorted(cats, key=lambda c: (c.order, c.name))
 
     async def list_materials(
-        self, concept_id: str | None, category_id: str | None = None
+        self, concept_id: str | None, category_id: str | None = None, group: str | None = None,
     ) -> list[Material]:
+        """group: группа сотрудника (None: не фильтровать по группам, для админки и статистики)."""
         rows = await self.backend.read_all(S.MATERIALS)
         items = []
         for r in rows:
@@ -187,9 +190,11 @@ class Repository:
                 kind=r.get("тип", "ссылка"), url=r.get("url", ""),
                 concept_id=r.get("концепция_id", ""),
                 for_newbies=parse_bool(r.get("для_новичков"), default=False),
-                order=parse_int(r.get("порядок"), 100),
+                order=parse_int(r.get("порядок"), 100), group=r.get("для_групп", "").strip(),
             )
             if not m.visible_for_concept(concept_id):
+                continue
+            if group is not None and not groups.allows(m.group, group):
                 continue
             if category_id is not None and m.category_id != category_id:
                 continue
@@ -249,7 +254,9 @@ class Repository:
         alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         return "".join(secrets.choice(alphabet) for _ in range(8))
 
-    async def add_employee(self, full_name: str, restaurant_id: str, position: str, role: Role) -> Employee:
+    async def add_employee(
+        self, full_name: str, restaurant_id: str, position: str, role: Role, group: str = "",
+    ) -> Employee:
         """Новый сотрудник с пригласительным кодом. Telegram привяжется при входе по ссылке."""
         async with self._id_lock:
             employee_id = await self._next_id(S.EMPLOYEES)
@@ -258,7 +265,7 @@ class Repository:
                 "id": employee_id, "telegram_id": "", "фио": full_name.strip(), "телефон": "",
                 "ресторан_id": restaurant_id, "должность": position.strip(), "роль": role.value,
                 "дата_старта": self.now().strftime("%d.%m.%Y"), "дата_добавления": self.now().strftime("%d.%m.%Y"),
-                "активен": "да", "пригласительный_код": code,
+                "активен": "да", "пригласительный_код": code, "группа": group,
             })
         created = await self.get_employee(employee_id)
         assert created is not None
@@ -276,6 +283,7 @@ class Repository:
 
     async def add_material(
         self, category_id: str, title: str, kind: str, url: str, concept_id: str, for_newbies: bool,
+        group: str = "",
     ) -> str:
         async with self._id_lock:
             material_id = await self._next_id(S.MATERIALS)
@@ -286,7 +294,7 @@ class Repository:
             await self.backend.append(S.MATERIALS, {
                 "id": material_id, "категория_id": category_id, "название": title.strip(), "тип": kind,
                 "url": url.strip(), "концепция_id": concept_id, "для_новичков": "да" if for_newbies else "нет",
-                "порядок": str(order), "активен": "да",
+                "порядок": str(order), "активен": "да", "для_групп": group,
             })
         return material_id
 

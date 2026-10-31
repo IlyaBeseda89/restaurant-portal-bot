@@ -12,6 +12,7 @@ from aiogram import F, Router, html
 from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto, Message
 
 from app.drive import direct_download_url, download_drive_file
+from app.groups import allows, group_of
 from app.handlers.common import Registered
 from app.keyboards import BTN_KNOWLEDGE, inline
 from app.models import Employee
@@ -35,7 +36,7 @@ KIND_ICON = {"ссылка": "🔗", "файл": "📎", "статья": "📄"}
 
 async def _categories_view(repo: Repository, employee: Employee) -> tuple[str, object]:
     concept = await effective_concept(repo, employee)
-    materials = await repo.list_materials(concept)
+    materials = await repo.list_materials(concept, group=group_of(employee))
     used = {m.category_id for m in materials}
     cats = [c for c in await repo.list_categories() if c.id in used]
     head = html.quote(await label(repo, employee))
@@ -86,7 +87,7 @@ async def back_to_categories(call: CallbackQuery, repo: Repository, employee: Em
 async def category(call: CallbackQuery, repo: Repository, employee: Employee) -> None:
     category_id = call.data.removeprefix("kb:cat:")
     concept = await effective_concept(repo, employee)
-    materials = await repo.list_materials(concept, category_id)
+    materials = await repo.list_materials(concept, category_id, group=group_of(employee))
     cat = next((c for c in await repo.list_categories() if c.id == category_id), None)
     title = html.quote(cat.name) if cat else "Раздел"
     rows = [
@@ -105,7 +106,7 @@ async def material(call: CallbackQuery, repo: Repository, employee: Employee) ->
     material_id = call.data.removeprefix("kb:mat:")
     m = await repo.get_material(material_id)
     concept = await effective_concept(repo, employee)
-    if m is None or not m.visible_for_concept(concept):
+    if m is None or not m.visible_for_concept(concept) or not allows(m.group, group_of(employee)):
         await call.answer("Материал недоступен или скрыт.", show_alert=True)
         return
     repo.log(employee.id, "просмотр материала", m.id)
@@ -184,7 +185,8 @@ async def _send_drive_material(call: CallbackQuery, m, icon: str) -> None:
 async def material_pdf(call: CallbackQuery, repo: Repository, employee: Employee) -> None:
     m = await repo.get_material(call.data.removeprefix("kb:pdf:"))
     concept = await effective_concept(repo, employee)
-    if m is None or not m.visible_for_concept(concept) or not direct_download_url(m.url):
+    if m is None or not m.visible_for_concept(concept) or not allows(m.group, group_of(employee)) \
+            or not direct_download_url(m.url):
         await call.answer("Материал недоступен или скрыт.", show_alert=True)
         return
     caption = f"📎 <b>{html.quote(m.title)}</b>"

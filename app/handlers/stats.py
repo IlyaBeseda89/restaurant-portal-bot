@@ -13,6 +13,7 @@ from aiogram import F, Router, html
 from aiogram.types import CallbackQuery, Message
 
 from app.config import Config
+from app.groups import group_of
 from app.handlers.common import HasAccess, Registered
 from app.keyboards import BTN_STATS, inline
 from app.models import Employee
@@ -49,7 +50,7 @@ def _newbies(repo: Repository, config: Config, employees: list[Employee]) -> lis
 
 async def _checklist_size(repo: Repository, employee: Employee) -> int:
     concept = await repo.concept_of(employee)
-    return len([m for m in await repo.list_materials(concept) if m.for_newbies])
+    return len([m for m in await repo.list_materials(concept, group=group_of(employee)) if m.for_newbies])
 
 
 async def _summary(repo: Repository, config: Config, viewer: Employee) -> str:

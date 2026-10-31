@@ -13,6 +13,7 @@ import logging
 from aiogram import Bot, F, Router, html
 from aiogram.types import CallbackQuery, Message
 
+from app.groups import group_of
 from app.handlers.common import HasAccess, Registered
 from app.keyboards import BTN_START, inline
 from app.models import Employee, Material
@@ -33,7 +34,7 @@ router.callback_query.filter(Registered(), HasAccess(Section.ONBOARDING))
 
 async def _checklist(repo: Repository, employee: Employee) -> list[Material]:
     concept = await effective_concept(repo, employee)
-    return [m for m in await repo.list_materials(concept) if m.for_newbies]
+    return [m for m in await repo.list_materials(concept, group=group_of(employee)) if m.for_newbies]
 
 
 def _bar(done: int, total: int) -> str:
