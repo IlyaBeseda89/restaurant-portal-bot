@@ -13,8 +13,8 @@ from zoneinfo import ZoneInfo
 
 from app import schema as S
 from app.models import (
-    Category, Concept, Employee, Feedback, Material, Product, Restaurant,
-    normalize_name, parse_bool, parse_date, parse_int,
+    Category, Concept, Employee, Event, Feedback, Material, Product, Restaurant, Topic,
+    TrainingRequest, normalize_name, parse_bool, parse_date, parse_datetime, parse_int,
 )
 from app.roles import Role
 from app.storage.backend import Row, TableBackend
@@ -227,6 +227,142 @@ class Repository:
             if p.id == product_id:
                 return p
         return None
+
+    # ---------- тренинги: темы, расписание, заявки ----------
+
+    async def list_topics(self, active_only: bool = True) -> list[Topic]:
+        topics = [
+            Topic(
+                id=r["id"], name=r.get("название", "").strip(), format=r.get("формат", "").strip().lower(),
+                description=r.get("описание", "").strip(), duration=r.get("длительность", "").strip(),
+            )
+            for r in await self.backend.read_all(S.TOPICS)
+            if r.get("id") and r.get("название", "").strip()
+            and (not active_only or parse_bool(r.get("активен")))
+        ]
+        return topics
+
+    async def get_topic(self, topic_id: str) -> Topic | None:
+        for t in await self.list_topics(active_only=False):
+            if t.id == topic_id:
+                return t
+        return None
+
+    @staticmethod
+    def _event(r: Row) -> Event:
+        return Event(
+            id=r["id"], topic_id=r.get("тема_id", "").strip(), start=parse_datetime(r.get("дата_время")),
+            format=r.get("формат", "").strip().lower(), venue=r.get("площадка", "").strip(),
+            host=r.get("ведущий", "").strip(), capacity=parse_int(r.get("вместимость"), 0),
+            enrolled=parse_int(r.get("записано"), 0), status=r.get("статус", "").strip().lower() or "план",
+            reminded=parse_bool(r.get("напоминание"), default=False),
+        )
+
+    async def list_events(self) -> list[Event]:
+        events = [self._event(r) for r in await self.backend.read_all(S.SCHEDULE) if r.get("id")]
+        return sorted(events, key=lambda e: (e.start is None, e.start))
+
+    async def get_event(self, event_id: str) -> Event | None:
+        for e in await self.list_events():
+            if e.id == event_id:
+                return e
+        return None
+
+    def now_local(self) -> datetime:
+        """Текущее время без часового пояса: даты в таблице тоже локальные."""
+        return self.now().replace(tzinfo=None)
+
+    async def upcoming_events(self) -> list[Event]:
+        now = self.now_local()
+        return [e for e in await self.list_events() if e.active and e.start and e.start >= now]
+
+    async def add_event(
+        self, topic_id: str, start: datetime, fmt: str, venue: str, host: str,
+        enrolled: int = 0, status: str = "подтверждён",
+    ) -> str:
+        async with self._id_lock:
+            event_id = await self._next_id(S.SCHEDULE)
+            await self.backend.append(S.SCHEDULE, {
+                "id": event_id, "тема_id": topic_id, "дата_время": start.strftime("%d.%m.%Y %H:%M"),
+                "формат": fmt, "площадка": venue, "ведущий": host, "вместимость": "",
+                "записано": str(enrolled), "статус": status, "напоминание": "",
+            })
+        return event_id
+
+    async def update_event(self, event_id: str, **changes: str) -> bool:
+        return await self.backend.update(S.SCHEDULE, "id", event_id, changes)
+
+    @staticmethod
+    def _request(r: Row) -> TrainingRequest:
+        return TrainingRequest(
+            id=r["id"], created=r.get("дата_создания", ""), restaurant_id=r.get("ресторан_id", "").strip(),
+            applicant_id=r.get("заявитель_id", "").strip(), topic_id=r.get("тема_id", "").strip(),
+            format=r.get("формат", "").strip().lower(), venue=r.get("площадка", "").strip(),
+            desired_dates=r.get("желаемые_даты", ""), participants=r.get("участники", ""),
+            count=parse_int(r.get("количество"), 0), status=r.get("статус", "").strip().lower() or "новая",
+            comment=r.get("комментарий_менеджера", ""), decided=r.get("дата_решения", ""),
+            event_id=r.get("событие_id", "").strip(),
+        )
+
+    async def list_requests(self) -> list[TrainingRequest]:
+        return [self._request(r) for r in await self.backend.read_all(S.REQUESTS) if r.get("id")]
+
+    async def get_request(self, request_id: str) -> TrainingRequest | None:
+        for r in await self.list_requests():
+            if r.id == request_id:
+                return r
+        return None
+
+    async def add_request(
+        self, restaurant_id: str, applicant_id: str, topic_id: str, fmt: str, venue: str,
+        desired_dates: str, participants: str, count: int,
+    ) -> str:
+        async with self._id_lock:
+            request_id = await self._next_id(S.REQUESTS)
+            await self.backend.append(S.REQUESTS, {
+                "id": request_id, "дата_создания": self._now_str(), "ресторан_id": restaurant_id,
+                "заявитель_id": applicant_id, "тема_id": topic_id, "формат": fmt, "площадка": venue,
+                "желаемые_даты": desired_dates, "участники": participants, "количество": str(count),
+                "статус": "новая",
+            })
+        return request_id
+
+    async def update_request(self, request_id: str, **changes: str) -> bool:
+        return await self.backend.update(S.REQUESTS, "id", request_id, changes)
+
+    async def get_employee(self, employee_id: str) -> Employee | None:
+        for e in await self.list_employees():
+            if e.id == employee_id:
+                return e
+        return None
+
+    async def training_managers(self) -> list[Employee]:
+        """Менеджеры по обучению, которые уже зарегистрировались в боте."""
+        return [
+            e for e in await self.list_employees()
+            if e.role is Role.TRAINING_MANAGER and e.active and e.telegram_id
+        ]
+
+    async def match_participants(self, names: list[str]) -> tuple[list[Employee], list[str]]:
+        """Находит среди зарегистрированных сотрудников тех, кто назван в заявке.
+
+        Совпадением считается ФИО целиком или «Фамилия Имя» без отчества, но только если
+        такой человек один. Возвращает (найденные, не найденные имена).
+        """
+        staff = [e for e in await self.list_employees() if e.active and e.telegram_id]
+        found: dict[str, Employee] = {}
+        missing: list[str] = []
+        for name in names:
+            tokens = normalize_name(name).split()
+            hits = [
+                e for e in staff
+                if len(tokens) >= 2 and normalize_name(e.full_name).split()[:len(tokens)] == tokens
+            ]
+            if len(hits) == 1:
+                found[hits[0].id] = hits[0]
+            else:
+                missing.append(name)
+        return list(found.values()), missing
 
     # ---------- прогресс «изучено» ----------
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 
@@ -22,6 +23,20 @@ def parse_date(value: str | None) -> date | None:
     for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y", "%d/%m/%Y"):
         try:
             return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def parse_datetime(value: str | None) -> datetime | None:
+    """«15.11.2026 14:00» (или без времени, тогда 00:00). Время локальное, без часового пояса."""
+    if not value:
+        return None
+    value = str(value).strip()
+    for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%Y %H.%M", "%Y-%m-%d %H:%M", "%d.%m.%y %H:%M",
+                "%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt)
         except ValueError:
             continue
     return None
@@ -148,3 +163,62 @@ class Feedback:
     text: str
     has_attachment: bool = False
     id: str = ""
+
+
+@dataclass
+class Topic:
+    id: str
+    name: str
+    format: str  # офлайн / онлайн / оба
+    description: str
+    duration: str
+
+    def allows(self, fmt: str) -> bool:
+        f = self.format.strip().lower()
+        return f in {"", "оба", "обе", "любой"} or f == fmt
+
+
+@dataclass
+class Event:
+    id: str
+    topic_id: str
+    start: datetime | None
+    format: str
+    venue: str
+    host: str
+    capacity: int
+    enrolled: int
+    status: str  # план / подтверждён / проведён / отменён
+    reminded: bool = False
+
+    @property
+    def active(self) -> bool:
+        return self.status.strip().lower() in {"план", "подтверждён", "подтвержден"}
+
+
+@dataclass
+class TrainingRequest:
+    id: str
+    created: str
+    restaurant_id: str
+    applicant_id: str
+    topic_id: str
+    format: str
+    venue: str
+    desired_dates: str
+    participants: str
+    count: int
+    status: str  # новая / принята / перенесена / отклонена / проведена
+    comment: str = ""
+    decided: str = ""
+    event_id: str = ""
+
+    @property
+    def participant_names(self) -> list[str]:
+        """ФИО участников из строк вида «Иванов Иван — официант»."""
+        names = []
+        for line in self.participants.splitlines():
+            name = re.split(r"\s+[—–-]\s+|\s*,\s*", line.strip(), maxsplit=1)[0].strip()
+            if name:
+                names.append(name)
+        return names

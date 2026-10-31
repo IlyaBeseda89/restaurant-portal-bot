@@ -41,6 +41,22 @@ async def cmd_init(repo: Repository) -> None:
     print("Таблицы готовы:", ", ".join(S.TABLES))
 
 
+async def _demo_trainings(repo: Repository) -> None:
+    """Демо-темы тренингов и два тренинга в расписании. Грузятся, только если листы пусты."""
+    b = repo.backend
+    if not await b.read_all(S.TOPICS):
+        await b.append_many(S.TOPICS, [
+            {"id": "1", "название": "Сервис: знакомство с гостем", "формат": "оба", "описание": "Базовые стандарты сервиса", "длительность": "2 часа", "активен": "да"},
+            {"id": "2", "название": "Пищевая безопасность", "формат": "онлайн", "описание": "Обязательный курс для всех", "длительность": "1 час", "активен": "да"},
+            {"id": "3", "название": "Работа с кассой", "формат": "очно", "описание": "Практика на кассе", "длительность": "2 часа", "активен": "да"},
+        ])
+    if not await b.read_all(S.SCHEDULE):
+        now = repo.now_local()
+        for i, (topic, days, fmt, venue) in enumerate([("1", 7, "очно", "Ресторан на Тверской"), ("2", 14, "онлайн", "онлайн")]):
+            start = (now + timedelta(days=days)).replace(hour=14, minute=0, second=0, microsecond=0)
+            await repo.add_event(topic, start, fmt, venue, "Лебедева Ольга")
+
+
 async def _demo_products(repo: Repository) -> None:
     """Демо-карточки блюд. Грузятся, только если лист «Карточки продуктов» пуст."""
     b = repo.backend
@@ -133,6 +149,7 @@ async def cmd_demo(repo: Repository) -> None:
         for i, fio, rid, pos, role, start, code in emp
     ])
     await _demo_products(repo)
+    await _demo_trainings(repo)
     await b.append_many(S.TEXTS, [
         {"ключ": "помощь", "значение": "❓ Помощь и контакты\n\nHR: Тестов Тест, +7 900 000-00-00\nМенеджер по обучению: Лебедева Ольга, @example\nТехподдержка портала: @example"},
     ])
