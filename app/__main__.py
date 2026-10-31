@@ -22,10 +22,17 @@ log = logging.getLogger("portal")
 
 
 async def flush_activity_forever(repo: Repository, every: float = 30.0) -> None:
+    next_prune = 0.0
+    loop = asyncio.get_running_loop()
     while True:
         await asyncio.sleep(every)
         try:
             await repo.flush_activity()
+            if loop.time() >= next_prune:  # старые записи стираем раз в сутки
+                next_prune = loop.time() + 86400
+                removed = await repo.prune_activity()
+                if removed:
+                    log.info("Журнал активности: удалено старых записей: %s", removed)
         except Exception:
             log.exception("Не удалось записать журнал активности, повторю позже")
 
