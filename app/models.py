@@ -66,18 +66,27 @@ class Employee:
         return parts[1] if len(parts) > 1 else (parts[0] if parts else "")
 
 
+COMMON = {"", "все", "all", "*"}
+
+
 def concept_matches(item_concept: str, employee_concept: str | None) -> bool:
-    """Видна ли запись сотруднику: «все» / пусто / его концепция. Без концепции видит всё."""
+    """Видна ли запись сотруднику.
+
+    - employee_concept = None: сотрудник работает со всеми концепциями (ТУ, HR, менеджер по обучению)
+    - employee_concept = "": концепция сотрудника не определена, ему видны только общие записи
+    - иначе: общие записи («все» или пусто) и записи его концепции, чужие скрыты
+    """
     cid = item_concept.strip().lower()
-    if cid in {"", "все", "all", "*"} or employee_concept is None:
+    if cid in COMMON or employee_concept is None:
         return True
-    return cid == employee_concept.lower()
+    return cid == employee_concept.strip().lower()
 
 
 @dataclass
 class Concept:
     id: str
     name: str
+    moderator_id: str = ""
 
 
 @dataclass

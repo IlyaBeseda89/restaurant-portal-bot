@@ -56,6 +56,15 @@ class FakeSession(BaseSession):
         ]
 
 
+@pytest.fixture(autouse=True)
+def _reset_concept_choice():
+    from app import scope
+
+    scope.reset()
+    yield
+    scope.reset()
+
+
 @pytest.fixture
 def config() -> Config:
     return Config(

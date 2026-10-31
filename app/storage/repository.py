@@ -41,6 +41,9 @@ def _employee(row: Row) -> Employee | None:
     )
 
 
+CROSS_CONCEPT_ROLES = {Role.TU, Role.TRAINING_MANAGER, Role.HR}
+
+
 class Repository:
     def __init__(self, backend: TableBackend, timezone: str = "Europe/Moscow") -> None:
         self.backend = backend
@@ -115,14 +118,30 @@ class Repository:
 
     async def list_concepts(self) -> list[Concept]:
         rows = await self.backend.read_all(S.CONCEPTS)
-        return [Concept(id=r["id"], name=r.get("название", "")) for r in rows if r.get("id")]
+        return [
+            Concept(id=r["id"], name=r.get("название", ""), moderator_id=r.get("модератор_id", "").strip())
+            for r in rows if r.get("id")
+        ]
 
     async def concept_of(self, employee: Employee) -> str | None:
-        """Концепция сотрудника по его ресторану. None — видит все концепции."""
-        if not employee.restaurant_id:
+        """К какой концепции относится сотрудник.
+
+        None  — работает со всеми концепциями (ТУ, менеджер по обучению, HR);
+        "…"   — id его концепции (по ресторану, а у модератора по листу «Концепции»);
+        ""    — определить не удалось (нет ресторана, у ресторана нет концепции):
+                такой сотрудник видит только общие материалы, чужое не показывается.
+        """
+        if employee.role is Role.MODERATOR:
+            for c in await self.list_concepts():
+                if c.moderator_id and c.moderator_id == employee.id:
+                    return c.id
+        elif employee.role in CROSS_CONCEPT_ROLES:
             return None
-        restaurant = await self.get_restaurant(employee.restaurant_id)
-        return restaurant.concept_id if restaurant and restaurant.concept_id else None
+        if employee.restaurant_id:
+            restaurant = await self.get_restaurant(employee.restaurant_id)
+            if restaurant and restaurant.concept_id.strip():
+                return restaurant.concept_id.strip()
+        return ""
 
     # ---------- база знаний ----------
 
