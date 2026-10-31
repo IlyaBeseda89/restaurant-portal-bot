@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -63,13 +64,25 @@ def _employee(row: Row) -> Employee | None:
 
 CROSS_CONCEPT_ROLES = {Role.TU, Role.TRAINING_MANAGER, Role.HR}
 
+# Служебная строка сводки: сколько разных сотрудников были активны в этот день
+ACTIVE_USERS = "активных"
+
 
 class Repository:
-    def __init__(self, backend: TableBackend, timezone: str = "Europe/Moscow") -> None:
+    def __init__(
+        self, backend: TableBackend, timezone: str = "Europe/Moscow",
+        activity_backend: TableBackend | None = None, activity_days: int = 60,
+    ) -> None:
         self.backend = backend
+        # Журнал активности можно держать отдельно от основных данных (локальный файл вместо таблицы)
+        self.activity_backend = activity_backend or backend
+        self.activity_days = activity_days
         self.tz = ZoneInfo(timezone)
         self._id_lock = asyncio.Lock()
-        self._activity_buffer: list[Row] = []
+        # Журнал ведётся сводкой по дням, без имён: (день, концепция, действие, объект) -> число
+        self._activity_counts: Counter[tuple[str, str, str, str]] = Counter()
+        self._active_today: dict[tuple[str, str], set[str]] = {}
+        self._concepts: dict[str, str] = {}
 
     def now(self) -> datetime:
         return datetime.now(self.tz)
@@ -336,17 +349,6 @@ class Repository:
             if r.get("тип") == kind:
                 result.setdefault(r.get("сотрудник_id", ""), set()).add(r.get("объект_id", ""))
         return result
-
-    async def activity_since(self, days: int) -> list[dict]:
-        """Записи журнала за последние дни (сначала сбрасывает буфер в таблицу)."""
-        await self.flush_activity()
-        limit = self.now().replace(tzinfo=None) - timedelta(days=days)
-        rows = []
-        for r in await self.backend.read_all(S.ACTIVITY):
-            when = parse_datetime(r.get("дата"))
-            if when and when >= limit:
-                rows.append({**r, "when": when})
-        return rows
 
     async def feedback_since(self, days: int) -> list[dict]:
         limit = self.now().replace(tzinfo=None) - timedelta(days=days)
@@ -629,23 +631,79 @@ class Repository:
 
     # ---------- журнал активности ----------
 
+    def remember_concept(self, employee_id: str, concept: str | None) -> None:
+        """Запоминает концепцию сотрудника, чтобы журнал считал действия по концепциям."""
+        self._concepts[employee_id] = concept or ""
+
     def log(self, employee_id: str, action: str, obj: str = "") -> None:
-        """Пишет в буфер. В таблицу журнал уходит пачкой (см. flush_activity),
-        чтобы не упираться в лимиты Google Sheets на запись."""
-        self._activity_buffer.append({
-            "id": uuid.uuid4().hex[:10],
-            "дата": self._now_str(),
-            "пользователь_id": employee_id,
-            "действие": action,
-            "объект": obj,
-        })
+        """Считает действие в сводке дня. Имя сотрудника не сохраняется.
+
+        В таблицу сводка уходит пачкой (см. flush_activity), чтобы не упираться в лимиты записи.
+        """
+        day = self.now().strftime("%d.%m.%Y")
+        concept = self._concepts.get(employee_id, "")
+        self._activity_counts[(day, concept, action, obj)] += 1
+        self._active_today.setdefault((day, concept), set()).add(employee_id)
 
     async def flush_activity(self) -> int:
-        rows, self._activity_buffer = self._activity_buffer, []
-        if rows:
-            try:
-                await self.backend.append_many(S.ACTIVITY, rows)
-            except Exception:
-                self._activity_buffer = rows + self._activity_buffer
-                raise
-        return len(rows)
+        """Дописывает накопленные счётчики в сводку. Возвращает число учтённых действий."""
+        counts, self._activity_counts = self._activity_counts, Counter()
+        if not counts and not self._active_today:
+            return 0
+        try:
+            existing = {
+                (r.get("дата", ""), r.get("концепция", ""), r.get("действие", ""), r.get("объект", "")): r
+                for r in await self.activity_backend.read_all(S.ACTIVITY) if r.get("id")
+            }
+            wanted = dict(counts)
+            for (day, concept), people in self._active_today.items():
+                key = (day, concept, ACTIVE_USERS, "")
+                have = parse_int(existing[key].get("число")) if key in existing else 0
+                wanted[key] = max(have, len(people))  # уникальных людей за день, а не прибавка
+            new_rows = []
+            for key, n in wanted.items():
+                row = existing.get(key)
+                if row is None:
+                    day, concept, action, obj = key
+                    new_rows.append({
+                        "id": uuid.uuid4().hex[:10], "дата": day, "концепция": concept,
+                        "действие": action, "объект": obj, "число": str(n),
+                    })
+                elif key[2] == ACTIVE_USERS:
+                    await self.activity_backend.update(S.ACTIVITY, "id", row["id"], {"число": str(n)})
+                else:
+                    await self.activity_backend.update(
+                        S.ACTIVITY, "id", row["id"], {"число": str(parse_int(row.get("число")) + n)},
+                    )
+            if new_rows:
+                await self.activity_backend.append_many(S.ACTIVITY, new_rows)
+        except Exception:
+            for key, n in counts.items():  # не теряем счётчики, повторим позже
+                self._activity_counts[key] += n
+            raise
+        today = self.now().strftime("%d.%m.%Y")
+        self._active_today = {k: v for k, v in self._active_today.items() if k[0] == today}
+        return sum(counts.values())
+
+    async def activity_since(self, days: int) -> list[dict]:
+        """Сводка по дням за последние дни (сначала сбрасывает накопленное в таблицу)."""
+        await self.flush_activity()
+        limit = self.now().replace(tzinfo=None) - timedelta(days=days)
+        rows = []
+        for r in await self.activity_backend.read_all(S.ACTIVITY):
+            when = parse_datetime(r.get("дата"))
+            if when and when >= limit:
+                rows.append({**r, "when": when, "число": parse_int(r.get("число"))})
+        return rows
+
+    async def prune_activity(self) -> int:
+        """Удаляет записи журнала старше activity_days. Работает, только если журнал лежит в локальном файле."""
+        delete = getattr(self.activity_backend, "delete_rows", None)
+        if delete is None or self.activity_days <= 0:
+            return 0
+        limit = self.now().replace(tzinfo=None) - timedelta(days=self.activity_days)
+        old = [
+            r["id"] for r in await self.activity_backend.read_all(S.ACTIVITY)
+            if r.get("id") and (when := parse_datetime(r.get("дата"))) and when < limit
+        ]
+        return await delete(S.ACTIVITY, old) if old else 0

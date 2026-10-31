@@ -18,7 +18,7 @@ from app.handlers.common import HasAccess, Registered
 from app.keyboards import BTN_STATS, inline
 from app.models import Employee
 from app.roles import Section
-from app.storage.repository import Repository
+from app.storage.repository import ACTIVE_USERS, Repository
 
 log = logging.getLogger(__name__)
 
@@ -68,13 +68,25 @@ async def _summary(repo: Repository, config: Config, viewer: Employee) -> str:
         f"Новичков сейчас: {len(newbies)}",
     ]
 
-    activity = [r for r in await repo.activity_since(DAYS) if r.get("пользователь_id") in ids]
+    concept = await repo.concept_of(viewer)
+    activity = [
+        r for r in await repo.activity_since(DAYS)
+        if concept is None or r.get("концепция", "") == concept
+    ]
     lines += ["", f"📈 <b>Активность за {DAYS} дн.</b>"]
-    if activity:
-        users = {r["пользователь_id"] for r in activity}
-        lines.append(f"Действий: {len(activity)}, активных сотрудников: {len(users)} из {entered}")
+    actions = [r for r in activity if r.get("действие") != ACTIVE_USERS]
+    if actions:
+        per_day: dict[str, int] = {}
+        for r in activity:
+            if r.get("действие") == ACTIVE_USERS:
+                per_day[r["дата"]] = per_day.get(r["дата"], 0) + r["число"]
+        avg = f", в среднем активных в день: {sum(per_day.values()) / len(per_day):.0f}" if per_day else ""
+        lines.append(f"Действий: {sum(r['число'] for r in actions)}{avg}")
         titles = {m.id: m.title for m in await repo.list_materials(None)}
-        top = Counter(r["объект"] for r in activity if r.get("действие") == OPEN_ACTION and r.get("объект"))
+        top: Counter = Counter()
+        for r in actions:
+            if r.get("действие") == OPEN_ACTION and r.get("объект"):
+                top[r["объект"]] += r["число"]
         if top:
             lines.append("Чаще открывали:")
             lines += [f"• {html.quote(titles.get(i, 'материал ' + i))}: {n}" for i, n in top.most_common(TOP)]

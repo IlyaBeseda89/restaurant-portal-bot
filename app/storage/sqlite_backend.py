@@ -69,3 +69,16 @@ class SqliteBackend:
             cur = self._conn.execute(sql, [str(changes[c]) for c in cols] + [str(key)])
             self._conn.commit()
             return cur.rowcount > 0
+
+    async def delete_rows(self, table: str, ids: list[str]) -> int:
+        """Удаляет строки по id (для очистки старого журнала). Возвращает число удалённых."""
+        deleted = 0
+        async with self._lock:
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                cur = self._conn.execute(
+                    f"DELETE FROM {_q(table)} WHERE {_q('id')} IN ({', '.join('?' for _ in chunk)})", chunk,
+                )
+                deleted += cur.rowcount
+            self._conn.commit()
+        return deleted
