@@ -54,15 +54,25 @@ def parse_confirm_form(html_text: str) -> tuple[str, dict[str, str]] | None:
     return html.unescape(action.group(1)), {k: html.unescape(v) for k, v in fields.items()}
 
 
+async def read_limited(chunks, limit: int) -> bytes:
+    """Склеивает все части ответа (read(n) у aiohttp отдаёт только первую порцию!)."""
+    parts: list[bytes] = []
+    total = 0
+    async for chunk in chunks:
+        total += len(chunk)
+        if total > limit:
+            raise DriveError("файл слишком большой")
+        parts.append(chunk)
+    return b"".join(parts)
+
+
 async def _fetch(session: aiohttp.ClientSession, url: str, params: dict[str, str] | None, limit: int):
     async with session.get(url, params=params) as resp:
         if resp.status != 200:
             raise DriveError(f"Диск ответил {resp.status}")
         if resp.content_length and resp.content_length > limit:
             raise DriveError("файл слишком большой")
-        data = await resp.content.read(limit + 1)
-        if len(data) > limit:
-            raise DriveError("файл слишком большой")
+        data = await read_limited(resp.content.iter_chunked(64 * 1024), limit)
         return data, resp.headers.get("Content-Disposition", "")
 
 

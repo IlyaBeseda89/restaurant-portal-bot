@@ -78,3 +78,17 @@ def test_confirm_form_parsing():
     assert looks_like_html(page.encode()) and looks_like_html(b'{"error": 1}')
     assert not looks_like_html(b"%PDF-1.7 ...") and not looks_like_html(b"PK\x03\x04")
     assert parse_confirm_form("<html>нет формы</html>") is None
+
+
+async def test_read_limited_joins_all_chunks_and_enforces_limit():
+    import pytest
+
+    from app.drive import DriveError, read_limited
+
+    async def chunks(*parts):
+        for p in parts:
+            yield p
+
+    assert await read_limited(chunks(b"%PDF", b"-1.3 ", b"end"), 100) == b"%PDF-1.3 end"
+    with pytest.raises(DriveError):
+        await read_limited(chunks(b"x" * 60, b"y" * 60), 100)
