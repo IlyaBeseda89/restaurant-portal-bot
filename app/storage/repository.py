@@ -13,8 +13,21 @@ from zoneinfo import ZoneInfo
 
 from app import schema as S
 from app.models import (
-    Category, Concept, Employee, Event, Feedback, Material, Product, Restaurant, Topic,
-    TrainingRequest, normalize_name, parse_bool, parse_date, parse_datetime, parse_int,
+    Category,
+    Concept,
+    Employee,
+    Event,
+    Feedback,
+    Material,
+    Product,
+    Restaurant,
+    Topic,
+    TrainingRequest,
+    normalize_name,
+    parse_bool,
+    parse_date,
+    parse_datetime,
+    parse_int,
 )
 from app.roles import Role
 from app.storage.backend import Row, TableBackend

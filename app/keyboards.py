@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from aiogram.types import (
-    InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
 )
 
 from app.roles import Role, Section, can

@@ -27,7 +27,7 @@ class Config:
     timezone: str
 
     @classmethod
-    def from_env(cls) -> "Config":
+    def from_env(cls) -> Config:
         load_dotenv()
         return cls(
             bot_token=os.getenv("BOT_TOKEN", "").strip(),
