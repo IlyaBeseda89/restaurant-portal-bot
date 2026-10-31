@@ -209,15 +209,18 @@ async def schedule(message: Message, repo: Repository) -> None:
     topics = await _topics_by_id(repo)
     events = [e for e in await repo.list_events() if e.start is None or (now - e.start).days <= 14]
     events = events[:MANAGER_LIMIT]
+    add = inline([[("➕ Добавить тренинг", "ev:add")]])
     if not events:
         await message.answer(
-            "🗓 В расписании нет тренингов. Тренинги появляются здесь после принятия заявки, "
-            "а также если добавить строку в лист «Расписание»."
+            "🗓 В расписании нет тренингов. Тренинги появляются здесь после принятия заявки "
+            "или если добавить их кнопкой ниже.",
+            reply_markup=add,
         )
         return
     await message.answer(
-        "🗓 <b>Расписание</b>\nДату, площадку и ведущего меняйте прямо в таблице, лист «Расписание». "
-        "Здесь можно отметить тренинг проведённым или отменить его."
+        "🗓 <b>Расписание</b>\nЗдесь можно добавить тренинг, изменить его, открыть запись, "
+        "отметить проведённым или отменить.",
+        reply_markup=add,
     )
     for e in events:
         await message.answer(event_card(e, topics.get(e.topic_id)), reply_markup=_manager_buttons(e))

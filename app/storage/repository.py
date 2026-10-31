@@ -373,6 +373,15 @@ class Repository:
         ]
         return topics
 
+    async def add_topic(self, name: str, description: str = "", duration: str = "", fmt: str = "оба") -> str:
+        async with self._id_lock:
+            topic_id = await self._next_id(S.TOPICS)
+            await self.backend.append(S.TOPICS, {
+                "id": topic_id, "название": name.strip(), "формат": fmt, "описание": description.strip(),
+                "длительность": duration.strip(), "активен": "да",
+            })
+        return topic_id
+
     async def get_topic(self, topic_id: str) -> Topic | None:
         for t in await self.list_topics(active_only=False):
             if t.id == topic_id:
@@ -411,13 +420,16 @@ class Repository:
     async def add_event(
         self, topic_id: str, start: datetime, fmt: str, venue: str, host: str,
         enrolled: int = 0, status: str = "подтверждён",
+        capacity: int = 0, open_enrollment: bool = False, concept_id: str = "",
     ) -> str:
         async with self._id_lock:
             event_id = await self._next_id(S.SCHEDULE)
             await self.backend.append(S.SCHEDULE, {
                 "id": event_id, "тема_id": topic_id, "дата_время": start.strftime("%d.%m.%Y %H:%M"),
-                "формат": fmt, "площадка": venue, "ведущий": host, "вместимость": "",
+                "формат": fmt, "площадка": venue, "ведущий": host,
+                "вместимость": str(capacity) if capacity > 0 else "",
                 "записано": str(enrolled), "статус": status, "напоминание": "",
+                "запись": "да" if open_enrollment else "", "концепция_id": concept_id,
             })
         return event_id
 
