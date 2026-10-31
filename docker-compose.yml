@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped   # автоперезапуск контейнера (ТЗ, раздел 8)
+    volumes:
+      - ./data:/app/data          # база SQLite (если STORAGE=sqlite)
+      - ./secrets:/app/secrets:ro # ключ сервисного аккаунта Google
