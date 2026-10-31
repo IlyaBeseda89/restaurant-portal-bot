@@ -68,6 +68,7 @@ class Employee:
     invite_code: str
     newbie_override: bool | None  # None = считать по дате старта
     all_concepts: bool | None = None  # None = решает роль; True/False = задано в таблице
+    group: str = ""  # руководители / менеджмент / сотрудники; пусто = по роли и должности
 
     def is_newbie(self, today: date, newbie_days: int) -> bool:
         if self.newbie_override is not None:
@@ -132,6 +133,7 @@ class Material:
     concept_id: str  # id концепции или «все»
     for_newbies: bool
     order: int
+    group: str = ""  # для кого: пусто = всем
 
     def visible_for_concept(self, concept_id: str | None) -> bool:
         return concept_matches(self.concept_id, concept_id)

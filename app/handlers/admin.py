@@ -22,6 +22,15 @@ from aiogram.types import CallbackQuery, Message
 
 from app.cli import LINK_ROLE, invite_link
 from app.drive import drive_file_id
+from app.groups import (
+    BY_KEY,
+    GROUPS,
+    SHORT_KEY,
+    TITLES,
+    default_group,
+    group_of,
+    parse_group,
+)
 from app.handlers.common import HasAccess, Registered
 from app.keyboards import BTN_ADMIN, cancel_kb, inline, main_menu
 from app.models import Employee
@@ -44,6 +53,7 @@ class AddEmp(StatesGroup):
     role = State()
     restaurant = State()
     position = State()
+    group = State()
 
 
 class Find(StatesGroup):
@@ -55,6 +65,7 @@ class AddMat(StatesGroup):
     title = State()
     url = State()
     concept = State()
+    group = State()
     newbies = State()
 
 
@@ -142,6 +153,7 @@ async def _employee_card(repo: Repository, bot: Bot, admin: Employee, e: Employe
         f"Роль: {html.quote(e.role.title)}",
         f"Ресторан: {html.quote(restaurant.name) if restaurant else '—'}",
         f"Должность: {html.quote(e.position or '—')}",
+        f"Группа: {TITLES[group_of(e)]}" + ("" if parse_group(e.group) else " (по должности)"),
         "Статус: " + ("активен" if e.active else "отключён"),
     ]
     if e.telegram_id:
@@ -153,6 +165,7 @@ async def _employee_card(repo: Repository, bot: Bot, admin: Employee, e: Employe
     rows = []
     if await _can_touch(repo, admin, e):
         rows.append([("🔁 Роль", f"ad:er:{e.id}"), ("🏠 Ресторан", f"ad:es:{e.id}")])
+        rows.append([("👥 Группа", f"ad:eg:{e.id}")])
         rows.append([("🔒 Отключить" if e.active else "🔓 Включить", f"ad:ex:{e.id}")])
     else:
         lines.append("\nЭтого сотрудника вы изменить не можете.")
@@ -251,6 +264,32 @@ async def restaurant_set(call: CallbackQuery, repo: Repository, bot: Bot, employ
     await _show_employee(call, repo, bot, employee, target.id)
 
 
+@router.callback_query(F.data.startswith("ad:eg:"))
+async def group_menu(call: CallbackQuery, repo: Repository, employee: Employee) -> None:
+    target = await repo.get_employee(call.data.removeprefix("ad:eg:"))
+    if target is None or not await _can_touch(repo, employee, target):
+        await call.answer("Это изменить нельзя.", show_alert=True)
+        return
+    rows = [[(TITLES[g], f"ad:egv:{target.id}:{SHORT_KEY[g]}")] for g in reversed(GROUPS)]
+    rows.append([("По должности (авто)", f"ad:egv:{target.id}:auto")])
+    rows.append([("⬅️ Назад", f"ad:e:{target.id}")])
+    await call.message.edit_text(f"Группа для {html.quote(target.full_name)}:", reply_markup=inline(rows))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ad:egv:"))
+async def group_set(call: CallbackQuery, repo: Repository, bot: Bot, employee: Employee) -> None:
+    emp_id, _, key = call.data.removeprefix("ad:egv:").partition(":")
+    target = await repo.get_employee(emp_id)
+    if target is None or (key != "auto" and key not in BY_KEY) or not await _can_touch(repo, employee, target):
+        await call.answer("Это изменить нельзя.", show_alert=True)
+        return
+    value = "" if key == "auto" else BY_KEY[key]
+    await repo.update_employee(target.id, группа=value)
+    repo.log(employee.id, f"админка: группа {value or 'авто'}", target.id)
+    await _show_employee(call, repo, bot, employee, target.id)
+
+
 @router.callback_query(F.data.startswith("ad:ex:"))
 async def toggle_active(call: CallbackQuery, repo: Repository, bot: Bot, employee: Employee) -> None:
     target = await repo.get_employee(call.data.removeprefix("ad:ex:"))
@@ -318,26 +357,47 @@ async def add_emp_restaurant(call: CallbackQuery, state: FSMContext, repo: Repos
 
 
 @router.message(AddEmp.position, F.text)
+async def add_emp_position(message: Message, state: FSMContext, employee: Employee) -> None:
+    position = "" if message.text.strip() in {"-", "—"} else message.text.strip()[:80]
+    data = await state.get_data()
+    role = Role.parse(data["role"])
+    await state.update_data(position=position)
+    await state.set_state(AddEmp.group)
+    auto = TITLES[default_group(role, position)] if role else "—"
+    rows = [[(TITLES[g], f"ad:ag:{SHORT_KEY[g]}")] for g in reversed(GROUPS)]
+    rows.append([(f"Определить по должности ({auto})", "ad:ag:auto")])
+    await message.answer("К какой группе относится сотрудник?", reply_markup=inline(rows))
+
+
+@router.callback_query(AddEmp.group, F.data.startswith("ad:ag:"))
 async def add_emp_finish(
-    message: Message, state: FSMContext, repo: Repository, bot: Bot, employee: Employee, is_newbie: bool,
+    call: CallbackQuery, state: FSMContext, repo: Repository, bot: Bot, employee: Employee, is_newbie: bool,
 ) -> None:
+    key = call.data.removeprefix("ad:ag:")
+    if key != "auto" and key not in BY_KEY:
+        await call.answer("Выберите из списка.", show_alert=True)
+        return
     data = await state.get_data()
     await state.clear()
-    position = "" if message.text.strip() in {"-", "—"} else message.text.strip()[:80]
     role = Role.parse(data["role"])
     if role is None or role not in assignable_roles(employee):
-        await message.answer("Не получилось, начните заново.", reply_markup=main_menu(employee.role, is_newbie))
+        await call.message.answer("Не получилось, начните заново.", reply_markup=main_menu(employee.role, is_newbie))
+        await call.answer()
         return
-    new = await repo.add_employee(data["name"], data["restaurant"], position, role)
+    group = "" if key == "auto" else BY_KEY[key]
+    new = await repo.add_employee(data["name"], data["restaurant"], data.get("position", ""), role, group)
     repo.log(employee.id, "админка: добавлен сотрудник", new.id)
     username = (await bot.me()).username
-    await message.answer("Готово ✅", reply_markup=main_menu(employee.role, is_newbie))
-    await message.answer(
-        f"Сотрудник <b>{html.quote(new.full_name)}</b> добавлен ({html.quote(role.title)}).\n\n"
+    await call.message.edit_text("Группа выбрана.")
+    await call.message.answer("Готово ✅", reply_markup=main_menu(employee.role, is_newbie))
+    await call.message.answer(
+        f"Сотрудник <b>{html.quote(new.full_name)}</b> добавлен ({html.quote(role.title)}, "
+        f"группа: {TITLES[group_of(new)]}).\n\n"
         "Отправьте ему эту ссылку. При входе он введёт ФИО, и бот привяжет его к записи:\n"
         f"{invite_link(username, role, new.invite_code)}",
         disable_web_page_preview=True,
     )
+    await call.answer()
 
 
 # ---------------------------------------------------------------- материалы
@@ -418,8 +478,28 @@ async def mat_concept(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer("Выберите из списка.", show_alert=True)
         return
     await state.update_data(concept=concept)
-    await state.set_state(AddMat.newbies)
+    await state.set_state(AddMat.group)
     await call.message.edit_text("Концепция выбрана.")
+    await call.message.answer(
+        "Для кого материал?",
+        reply_markup=inline([
+            [("Для всех", "ad:mg:all")],
+            [("Менеджмент и руководители", "ad:mg:mgmt")],
+            [("Только руководители", "ad:mg:lead")],
+        ]),
+    )
+    await call.answer()
+
+
+@router.callback_query(AddMat.group, F.data.startswith("ad:mg:"))
+async def mat_group(call: CallbackQuery, state: FSMContext) -> None:
+    key = call.data.removeprefix("ad:mg:")
+    if key != "all" and key not in BY_KEY:
+        await call.answer("Выберите из списка.", show_alert=True)
+        return
+    await state.update_data(group="" if key == "all" else BY_KEY[key])
+    await state.set_state(AddMat.newbies)
+    await call.message.edit_text("Группа выбрана.")
     await call.message.answer(
         "Показывать в «Мой старт» для новичков?",
         reply_markup=inline([[("Да", "ad:mb:1"), ("Нет", "ad:mb:0")]]),
@@ -435,7 +515,7 @@ async def mat_finish(
     await state.clear()
     material_id = await repo.add_material(
         data["category"], data["title"], data["kind"], data["url"], data["concept"],
-        for_newbies=call.data.endswith("1"),
+        for_newbies=call.data.endswith("1"), group=data.get("group", ""),
     )
     repo.log(employee.id, "админка: добавлен материал", material_id)
     await call.message.edit_text("Выбрано.")

@@ -30,7 +30,8 @@ async def test_hr_adds_employee_and_gets_link(h, repo):
     await h.click(700, "ad:ar:employee")
     await h.click(700, "ad:as:r1")
     await h.send(700, "официант")
-    text = h.last_text(700)
+    await h.click(700, "ad:ag:auto")
+    text = [c.text for c in h.session.sent(700)][-1]
     assert "t.me/" in text and "start=employee_" in text
     new = (await repo.find_employees("Новиков"))[0]
     assert new.role.value == "сотрудник" and new.active and new.invite_code in text
@@ -80,6 +81,7 @@ async def test_add_and_hide_material(h, repo):
     await h.send(700, "Тестовый материал")
     await h.send(700, "https://example.com/a")
     await h.click(700, "ad:mn:all")
+    await h.click(700, "ad:mg:all")
     await h.click(700, "ad:mb:1")
     items = await repo.list_materials(concept_id=None)
     assert len(items) == before + 1
@@ -97,6 +99,7 @@ async def test_drive_file_detected(h, repo):
     await h.send(700, "Файл")
     await h.send(700, "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUv/view")
     await h.click(700, "ad:mn:all")
+    await h.click(700, "ad:mg:all")
     await h.click(700, "ad:mb:0")
     new = next(m for m in await repo.list_materials(concept_id=None) if m.title == "Файл")
     assert new.kind == "файл"
@@ -126,6 +129,7 @@ async def test_moderator_limited_to_own_concept(h, repo):
     buttons = data(h.last_markup(400))
     assert "ad:mn:all" not in buttons and len(buttons) == 1
     await h.click(400, buttons[0])
+    await h.click(400, "ad:mg:all")
     await h.click(400, "ad:mb:0")
     new = next(m for m in await repo.list_materials(concept_id=None) if m.title == "Материал модератора")
     assert new.concept_id == scope
