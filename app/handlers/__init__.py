@@ -5,6 +5,7 @@ from app.handlers import (
     feedback,
     knowledge,
     menu,
+    news,
     products,
     registration,
     schedule_add,
@@ -30,6 +31,7 @@ def build_router() -> Router:
         start.router,
         stats.router,
         feedback.router,
+        news.router,
         menu.router,
     )
     return root
