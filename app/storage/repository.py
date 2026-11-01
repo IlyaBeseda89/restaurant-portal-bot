@@ -73,6 +73,7 @@ def _employee(row: Row) -> Employee | None:
             parse_bool(row.get("все_концепции")) if row.get("все_концепции", "").strip() else None
         ),
         group=row.get("группа", "").strip(),
+        trainer=parse_bool(row.get("ведущий"), default=False),
     )
 
 
@@ -597,6 +598,19 @@ class Repository:
             e for e in await self.list_employees()
             if e.role is Role.TRAINING_MANAGER and e.active and e.telegram_id
         ]
+
+    async def request_recipients(self) -> list[Employee]:
+        """Кому приходят новые заявки на тренинги: HR (распределяет их), а без HR менеджерам по обучению."""
+        hr = [e for e in await self.list_employees() if e.role is Role.HR and e.active and e.telegram_id]
+        return hr or await self.training_managers()
+
+    async def trainers(self) -> list[Employee]:
+        """Те, кого можно назначить ведущим: отмеченные «ведущий» и менеджеры по обучению."""
+        found = [
+            e for e in await self.list_employees()
+            if e.active and (e.trainer or e.role is Role.TRAINING_MANAGER)
+        ]
+        return sorted(found, key=lambda e: e.full_name)
 
     async def match_participants(self, names: list[str]) -> tuple[list[Employee], list[str]]:
         """Находит среди зарегистрированных сотрудников тех, кто назван в заявке.

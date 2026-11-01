@@ -164,6 +164,7 @@ async def _employee_card(repo: Repository, bot: Bot, admin: Employee, e: Employe
         f"Концепция: {await _concept_text(repo, e)}",
         f"Должность: {html.quote(e.position or '—')}",
         f"Группа: {TITLES[group_of(e)]}" + ("" if parse_group(e.group) else " (по должности)"),
+        "Ведёт тренинги: " + ("да 🎤" if e.trainer or e.role is Role.TRAINING_MANAGER else "нет"),
         "Статус: " + ("активен" if e.active else "отключён"),
     ]
     if e.telegram_id:
@@ -176,6 +177,8 @@ async def _employee_card(repo: Repository, bot: Bot, admin: Employee, e: Employe
     if await _can_touch(repo, admin, e):
         rows.append([("🔁 Роль", f"ad:er:{e.id}"), ("🏠 Ресторан", f"ad:es:{e.id}")])
         rows.append([("👥 Группа", f"ad:eg:{e.id}")])
+        if e.role is not Role.TRAINING_MANAGER:
+            rows.append([("🎤 Не ведущий" if e.trainer else "🎤 Назначить ведущим", f"ad:eh:{e.id}")])
         rows.append([("🔒 Отключить" if e.active else "🔓 Включить", f"ad:ex:{e.id}")])
     else:
         lines.append("\nЭтого сотрудника вы изменить не можете.")
@@ -246,6 +249,18 @@ async def role_set(call: CallbackQuery, repo: Repository, bot: Bot, employee: Em
         return
     await repo.update_employee(target.id, роль=role.value)
     repo.log(employee.id, f"админка: роль {role.value}", target.id)
+    await _show_employee(call, repo, bot, employee, target.id)
+
+
+@router.callback_query(F.data.startswith("ad:eh:"))
+async def trainer_toggle(call: CallbackQuery, repo: Repository, bot: Bot, employee: Employee) -> None:
+    target = await repo.get_employee(call.data.removeprefix("ad:eh:"))
+    if target is None or not await _can_touch(repo, employee, target):
+        await call.answer("Это изменить нельзя.", show_alert=True)
+        return
+    new = not target.trainer
+    await repo.update_employee(target.id, ведущий="да" if new else "")
+    repo.log(employee.id, "админка: ведущий" if new else "админка: не ведущий", target.id)
     await _show_employee(call, repo, bot, employee, target.id)
 
 

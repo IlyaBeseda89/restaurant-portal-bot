@@ -188,11 +188,11 @@ async def send(
     )
     repo.log(employee.id, "заявка на тренинг", request_id)
     request = await repo.get_request(request_id)
-    managers = await repo.training_managers()
+    managers = await repo.request_recipients()
     if request is not None and managers:
         text, markup = await _request_card(repo, request, with_buttons=True)
         await send_to(bot, managers, "🆕 <b>Новая заявка на тренинг</b>\n\n" + text, markup)
-    tail = "" if managers else "\nМенеджер по обучению увидит её в таблице."
+    tail = "" if managers else "\nКоординатор обучения увидит её в таблице."
     await call.message.answer(
         f"✅ Заявка №{request_id} отправлена. О решении сообщим в боте.{tail}",
         reply_markup=main_menu(employee.role, is_newbie),
@@ -282,7 +282,29 @@ async def got_date(message: Message, state: FSMContext, repo: Repository) -> Non
         return
     await state.update_data(start=start.strftime("%d.%m.%Y %H:%M"))
     await state.set_state(Decide.host)
-    await message.answer("Кто ведёт тренинг? Напишите имя или «-», если пока не определено.")
+    trainers = await repo.trainers()
+    rows = [[(t.full_name, f"rd:h:{t.id}")] for t in trainers]
+    rows.append([("✍️ Написать имя", "rd:h:txt"), ("⏳ Назначу позже", "rd:h:none")])
+    await message.answer("Кто ведёт тренинг?", reply_markup=inline(rows))
+
+
+@router.callback_query(Decide.host, F.data.startswith("rd:h:"), HasAccess(Section.REQUESTS_PROCESS))
+async def host_button(
+    call: CallbackQuery, state: FSMContext, repo: Repository, bot: Bot, employee: Employee, is_newbie: bool,
+) -> None:
+    await call.answer()
+    key = call.data.removeprefix("rd:h:")
+    if key == "txt":
+        await call.message.answer("Напишите имя ведущего.")
+        return
+    await call.message.edit_reply_markup(reply_markup=None)
+    trainer = None
+    if key != "none":
+        trainer = next((t for t in await repo.trainers() if t.id == key), None)
+        if trainer is None:
+            await call.message.answer("Не нашёл такого ведущего, начните принятие заявки заново.")
+            return
+    await _finish_accept(call.message, state, repo, bot, employee, is_newbie, trainer.full_name if trainer else "", trainer)
 
 
 @router.message(Decide.host, F.text)
@@ -290,14 +312,22 @@ async def got_host(
     message: Message, state: FSMContext, repo: Repository, bot: Bot,
     employee: Employee, is_newbie: bool,
 ) -> None:
+    host = message.text.strip()[:100]
+    host = "" if host == "-" else host
+    found = next((t for t in await repo.trainers() if t.full_name.lower() == host.lower()), None)
+    await _finish_accept(message, state, repo, bot, employee, is_newbie, host, found)
+
+
+async def _finish_accept(
+    message: Message, state: FSMContext, repo: Repository, bot: Bot, employee: Employee,
+    is_newbie: bool, host: str, trainer: Employee | None,
+) -> None:
     data = await state.get_data()
     await state.clear()
     r = await repo.get_request(data["request_id"])
     if r is None or r.status != "новая":
         await message.answer("Заявка уже обработана.", reply_markup=main_menu(employee.role, is_newbie))
         return
-    host = message.text.strip()
-    host = "" if host == "-" else host[:100]
     start = parse_datetime(data["start"])
     event_id = await repo.add_event(r.topic_id, start, r.format, r.venue, host, enrolled=r.count)
     await repo.update_request(
@@ -317,6 +347,15 @@ async def got_host(
         inline([[("📅 В мой календарь", f"tr:ics:{event_id}")]]),
     )
     note = f"Тренинг добавлен в расписание. Уведомлено: {sent}."
+    if trainer is not None and trainer.telegram_id and trainer.id != employee.id:
+        told = await send_to(
+            bot, [trainer],
+            "🎤 <b>Вас назначили ведущим тренинга</b>\n\n" + event_card(event, topic),
+            inline([[("📅 В мой календарь", f"tr:ics:{event_id}")]]),
+        )
+        note += f"\nВедущий {html.quote(trainer.full_name)}: " + ("уведомлён." if told else "не удалось уведомить.")
+    elif trainer is not None and not trainer.telegram_id:
+        note += f"\nВедущий {html.quote(trainer.full_name)} ещё не заходил в бота, сообщите ему сами."
     if missing:
         note += f"\nБот не нашёл: {html.quote(', '.join(missing))}. Сообщите им сами."
     await message.answer(note, reply_markup=main_menu(employee.role, is_newbie))
