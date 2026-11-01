@@ -69,6 +69,7 @@ class Employee:
     newbie_override: bool | None  # None = считать по дате старта
     all_concepts: bool | None = None  # None = решает роль; True/False = задано в таблице
     group: str = ""  # руководители / менеджмент / сотрудники; пусто = по роли и должности
+    trainer: bool = False  # ведёт тренинги: можно назначить ведущим
 
     def is_newbie(self, today: date, newbie_days: int) -> bool:
         if self.newbie_override is not None:

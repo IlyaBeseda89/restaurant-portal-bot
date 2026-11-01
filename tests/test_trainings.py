@@ -116,3 +116,37 @@ def test_ics_has_event_and_escapes():
     assert "BEGIN:VEVENT" in raw and "DTSTART:20261215T110000Z" in raw
     assert "Сервис\\, база" in raw and "Зал\\; №1\\, Москва" in raw
     assert S.SCHEDULE == "Расписание"
+
+
+async def test_request_goes_to_hr_first_and_hr_assigns_trainer(h, repo):
+    await reg_all(h)
+    await register(h, 700, "hr_DEMOHR01", "Тестов Тест Тестович")
+    await h.send(200, BTN_REQUEST)
+    await h.click(200, "rq:t:1")
+    await h.click(200, "rq:f:онлайн")
+    await h.send(200, "с 10 по 15 декабря")
+    await h.send(200, "Петрова Анна Сергеевна — официант")
+    before = len(h.session.sent(300))
+    await h.click(200, "rq:send")
+    assert "Новая заявка" in h.last_text(700)  # заявка пришла HR
+    assert len(h.session.sent(300)) == before  # менеджеру по обучению сразу не уходит
+
+    rid = (await repo.list_requests())[0].id
+    await h.click(700, f"rd:ok:{rid}")
+    await h.send(700, (datetime.now() + timedelta(days=30)).strftime("%d.%m.%Y 15:00"))
+    trainer = (await repo.find_employees("Лебедева"))[0]
+    assert f"rd:h:{trainer.id}" in data(h.last_markup(700))  # менеджер по обучению в списке ведущих
+    await h.click(700, f"rd:h:{trainer.id}")
+    event = await repo.get_event((await repo.list_requests())[0].event_id)
+    assert event.host == trainer.full_name
+    assert "назначили ведущим" in h.last_text(300)
+
+
+async def test_hr_marks_employee_as_trainer(h, repo):
+    await reg_all(h)
+    await register(h, 700, "hr_DEMOHR01", "Тестов Тест Тестович")
+    emp = (await repo.find_employees("Петрова"))[0]
+    await h.click(700, f"ad:eh:{emp.id}")
+    assert any(t.id == emp.id for t in await repo.trainers())
+    await h.click(700, f"ad:eh:{emp.id}")
+    assert not any(t.id == emp.id for t in await repo.trainers())
