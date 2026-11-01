@@ -126,9 +126,8 @@ async def test_moderator_limited_to_own_concept(h, repo):
     await h.click(400, f"ad:mc:{cat.id}")
     await h.send(400, "Материал модератора")
     await h.send(400, "https://example.com/m")
-    buttons = data(h.last_markup(400))
-    assert "ad:mn:all" not in buttons and len(buttons) == 1
-    await h.click(400, buttons[0])
+    # у модератора концепция одна, бот не спрашивает её, а сразу переходит к группе
+    assert "ad:mn:all" not in data(h.last_markup(400))
     await h.click(400, "ad:mg:all")
     await h.click(400, "ad:mb:0")
     new = next(m for m in await repo.list_materials(concept_id=None) if m.title == "Материал модератора")
@@ -137,3 +136,21 @@ async def test_moderator_limited_to_own_concept(h, repo):
     common = next(m for m in await repo.list_materials(concept_id=None) if m.concept_id.lower() == "все")
     await h.click(400, f"ad:mx:{common.id}")
     assert any(m.id == common.id for m in await repo.list_materials(concept_id=None))
+
+
+async def test_moderator_product_skips_concept_question(h, repo):
+    await reg(h)
+    scope = await repo.concept_of((await repo.find_employees("Волкова"))[0])
+    await h.click(400, "ad:pa")
+    for answer in ["Горячее", "Блюдо модератора", "-", "-", "-", "-", "-", "-"]:
+        await h.send(400, answer)
+    p = next(p for p in await repo.list_products(concept_id=None) if p.name == "Блюдо модератора")
+    assert p.concept_id == scope
+
+
+async def test_employee_card_shows_concept_from_restaurant(h, repo):
+    await reg(h)
+    e = (await repo.find_employees("Петрова"))[0]
+    await h.click(700, f"ad:e:{e.id}")
+    edits = [c for c in h.session.calls if type(c).__name__ == "EditMessageText"]
+    assert "Концепция:" in edits[-1].text

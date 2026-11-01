@@ -81,6 +81,7 @@ async def _categories_view(repo: Repository, employee: Employee):
     rows = [[(c, f"pr:c:{category_key(c)}")] for c in cats]
     if await picker(repo, employee, "pr"):
         rows.append([("🔀 Другая концепция", "pr:pick")])
+    rows.append([("⬅️ В базу знаний", "kb:cats")])
     return f"🍽 <b>Карточки продуктов</b>\n{head}Выберите категорию меню:", inline(rows)
 
 

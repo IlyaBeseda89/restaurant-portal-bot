@@ -146,12 +146,22 @@ async def back_to_menu(call: CallbackQuery, state: FSMContext) -> None:
 # ---------------------------------------------------------------- сотрудники: карточка
 
 
+async def _concept_text(repo: Repository, e: Employee) -> str:
+    """Концепция сотрудника определяется автоматически: по ресторану (у модератора по листу «Концепции»)."""
+    concept = await repo.concept_of(e)
+    if concept is None:
+        return "все (доступ ко всем концепциям)"
+    names = {c.id: c.name or c.id for c in await repo.list_concepts()}
+    return html.quote(names.get(concept, concept)) if concept else "не определена (только общие материалы)"
+
+
 async def _employee_card(repo: Repository, bot: Bot, admin: Employee, e: Employee):
     restaurant = await repo.get_restaurant(e.restaurant_id)
     lines = [
         f"👤 <b>{html.quote(e.full_name)}</b>",
         f"Роль: {html.quote(e.role.title)}",
         f"Ресторан: {html.quote(restaurant.name) if restaurant else '—'}",
+        f"Концепция: {await _concept_text(repo, e)}",
         f"Должность: {html.quote(e.position or '—')}",
         f"Группа: {TITLES[group_of(e)]}" + ("" if parse_group(e.group) else " (по должности)"),
         "Статус: " + ("активен" if e.active else "отключён"),
@@ -392,7 +402,8 @@ async def add_emp_finish(
     await call.message.answer("Готово ✅", reply_markup=main_menu(employee.role, is_newbie))
     await call.message.answer(
         f"Сотрудник <b>{html.quote(new.full_name)}</b> добавлен ({html.quote(role.title)}, "
-        f"группа: {TITLES[group_of(new)]}).\n\n"
+        f"группа: {TITLES[group_of(new)]}).\n"
+        f"Концепция определена автоматически: {await _concept_text(repo, new)}.\n\n"
         "Отправьте ему эту ссылку. При входе он введёт ФИО, и бот привяжет его к записи:\n"
         f"{invite_link(username, role, new.invite_code)}",
         disable_web_page_preview=True,
@@ -465,9 +476,25 @@ async def mat_url(message: Message, state: FSMContext, repo: Repository, employe
         await state.clear()
         await message.answer("Для вашей роли нет концепции. Обратитесь к HR.")
         return
+    if len(mapping) == 1:  # у модератора концепция одна: не спрашиваем
+        await state.update_data(concept=next(iter(mapping.values())))
+        await _ask_material_group(message, state)
+        return
     await state.update_data(concepts=mapping)
     await state.set_state(AddMat.concept)
     await message.answer("Для какой концепции?", reply_markup=inline([[(t, f"ad:mn:{k}")] for [(t, k)] in rows]))
+
+
+async def _ask_material_group(message: Message, state: FSMContext) -> None:
+    await state.set_state(AddMat.group)
+    await message.answer(
+        "Для кого материал?",
+        reply_markup=inline([
+            [("Для всех", "ad:mg:all")],
+            [("Менеджмент и руководители", "ad:mg:mgmt")],
+            [("Только руководители", "ad:mg:lead")],
+        ]),
+    )
 
 
 @router.callback_query(AddMat.concept, F.data.startswith("ad:mn:"))
@@ -478,16 +505,8 @@ async def mat_concept(call: CallbackQuery, state: FSMContext) -> None:
         await call.answer("Выберите из списка.", show_alert=True)
         return
     await state.update_data(concept=concept)
-    await state.set_state(AddMat.group)
     await call.message.edit_text("Концепция выбрана.")
-    await call.message.answer(
-        "Для кого материал?",
-        reply_markup=inline([
-            [("Для всех", "ad:mg:all")],
-            [("Менеджмент и руководители", "ad:mg:mgmt")],
-            [("Только руководители", "ad:mg:lead")],
-        ]),
-    )
+    await _ask_material_group(call.message, state)
     await call.answer()
 
 
@@ -621,6 +640,10 @@ async def prod_field(message: Message, state: FSMContext, repo: Repository, empl
         await state.clear()
         await message.answer("Для вашей роли нет концепции. Обратитесь к HR.")
         return
+    if len(mapping) == 1:  # у модератора концепция одна: не спрашиваем
+        await state.clear()
+        await _save_product(message, repo, employee, next(iter(mapping.values())), values)
+        return
     await state.update_data(values=values, concepts=mapping)
     await state.set_state(AddProd.concept)
     await message.answer("Для какой концепции?", reply_markup=inline([[(t, f"ad:pn:{k}")] for [(t, k)] in rows]))
@@ -636,17 +659,23 @@ async def prod_finish(
         await call.answer("Выберите из списка.", show_alert=True)
         return
     await state.clear()
-    v = data["values"]
+    await call.message.edit_text("Выбрано.")
+    await _save_product(call.message, repo, employee, concept, data["values"], is_newbie)
+    await call.answer()
+
+
+async def _save_product(
+    message: Message, repo: Repository, employee: Employee, concept: str, v: dict, is_newbie: bool | None = None,
+) -> None:
     product_id = await repo.add_product(
         concept, v["category"], v["name"], v.get("photo", ""), v.get("ingredients", ""),
         v.get("allergens", ""), v.get("method", ""), v.get("pairings", ""), v.get("storytelling", ""),
     )
     repo.log(employee.id, "админка: добавлена карточка", product_id)
-    await call.message.edit_text("Выбрано.")
-    await call.message.answer(
-        f"✅ Карточка «{html.quote(v['name'])}» добавлена.", reply_markup=main_menu(employee.role, is_newbie),
+    await message.answer(
+        f"✅ Карточка «{html.quote(v['name'])}» добавлена.",
+        reply_markup=main_menu(employee.role, bool(is_newbie)),
     )
-    await call.answer()
 
 
 @router.callback_query(F.data == "ad:pl")
