@@ -35,6 +35,13 @@ TITLE_MAX, TEXT_MAX = 100, 3500
 MODERATORS = {Role.HR, Role.TRAINING_MANAGER, Role.TU}  # могут скрыть любую новость
 
 
+class NewsEdit(StatesGroup):
+    """Правка одного поля: в предпросмотре (черновик) или у опубликованной новости (edit_id в данных)."""
+    title = State()
+    text = State()
+    photo = State()
+
+
 class NewsForm(StatesGroup):
     title = State()
     text = State()
@@ -59,6 +66,7 @@ def render(post: NewsPost, names: dict[str, str]) -> str:
     return (
         f"📰 <b>{html.quote(post.title)}</b>\n{tag(post, names)} · {post.date}\n\n"
         f"{html.quote(post.text)}\n\n<i>{html.quote(post.author)}</i>"
+        + (f"\n<i>✏️ изменено {post.edited}</i>" if post.edited else "")
     )
 
 
@@ -119,7 +127,7 @@ async def open_post(call: CallbackQuery, bot: Bot, repo: Repository, employee: E
         return
     markup = None
     if post.author_id == employee.id or employee.role in MODERATORS:
-        markup = inline([[("🗑 Скрыть новость", f"nw:h:{post.id}")]])
+        markup = inline([[("✏️ Изменить", f"nw:x:{post.id}"), ("🗑 Скрыть", f"nw:h:{post.id}")]])
     await send_post(bot, call.message.chat.id, post, await concept_names(repo), markup)
 
 
@@ -240,6 +248,8 @@ async def show_preview(message: Message, state: FSMContext, repo: Repository, em
         reply_markup=inline([
             [(f"📣 Опубликовать и разослать ({count})", "nw:go:push")],
             [("📌 Только в ленту", "nw:go:feed")],
+            [("✏️ Заголовок", "nw:e:t"), ("✏️ Текст", "nw:e:x")],
+            [("🖼 Фото", "nw:e:p"), ("🎯 Аудитория", "nw:e:a")],
         ]),
     )
 
@@ -272,3 +282,137 @@ async def publish(
         await repo.set_news_sent(post.id, sent)
         reply += f"\n📣 Доставлено: {sent} из {len(people)}."
     await call.message.answer(reply, reply_markup=main_menu(employee.role, is_newbie))
+
+
+# ---------- правка ----------
+
+FIELD_PROMPT = {
+    "t": ("title", f"Напишите новый <b>заголовок</b> (до {TITLE_MAX} символов)."),
+    "x": ("text", f"Напишите новый <b>текст</b> (до {TEXT_MAX} символов)."),
+    "p": ("photo", "Пришлите новое <b>фото</b> или уберите его."),
+}
+
+
+async def ask_field(message: Message, state: FSMContext, key: str) -> None:
+    field, prompt = FIELD_PROMPT[key]
+    await state.set_state(getattr(NewsEdit, field))
+    markup = inline([[("Убрать фото", "nw:nophoto2")]]) if field == "photo" else cancel_kb()
+    await message.answer(prompt, reply_markup=markup)
+
+
+@router.callback_query(NewsForm.confirm, F.data.startswith("nw:e:"))
+async def edit_draft(call: CallbackQuery, state: FSMContext, repo: Repository, employee: Employee) -> None:
+    await call.answer()
+    key = call.data.removeprefix("nw:e:")
+    await call.message.edit_reply_markup(reply_markup=None)
+    if key == "a":
+        await ask_audience(call.message, state, repo, employee)
+        return
+    if key in FIELD_PROMPT:
+        await ask_field(call.message, state, key)
+
+
+@router.callback_query(F.data.startswith("nw:x:"))
+async def edit_published(call: CallbackQuery, state: FSMContext, repo: Repository, employee: Employee) -> None:
+    await call.answer()
+    post = await repo.get_news(call.data.removeprefix("nw:x:"))
+    if post is None or (post.author_id != employee.id and employee.role not in MODERATORS):
+        await call.message.answer("Править новость может её автор, ТУ, менеджер по обучению или HR.")
+        return
+    await state.clear()
+    await state.update_data(edit_id=post.id)
+    await call.message.answer(
+        "Что изменить?",
+        reply_markup=inline([
+            [("✏️ Заголовок", "nw:f:t"), ("✏️ Текст", "nw:f:x")],
+            [("🖼 Фото", "nw:f:p")],
+        ]),
+    )
+
+
+@router.callback_query(F.data.startswith("nw:f:"))
+async def pick_field(call: CallbackQuery, state: FSMContext) -> None:
+    await call.answer()
+    key = call.data.removeprefix("nw:f:")
+    if key in FIELD_PROMPT and (await state.get_data()).get("edit_id"):
+        await call.message.edit_reply_markup(reply_markup=None)
+        await ask_field(call.message, state, key)
+
+
+async def apply_edit(
+    message: Message, state: FSMContext, repo: Repository, employee: Employee, field: str, value: str,
+) -> None:
+    """Сохраняет правку: у опубликованной новости в таблицу, у черновика в данные диалога."""
+    data = await state.get_data()
+    edit_id = data.get("edit_id")
+    if not edit_id:
+        await state.update_data(**{field: value})
+        await show_preview(message, state, repo, employee)
+        return
+    post = await repo.get_news(edit_id)
+    if post is None or (post.author_id != employee.id and employee.role not in MODERATORS):
+        await state.clear()
+        await message.answer("Править эту новость нельзя.")
+        return
+    await repo.edit_news(edit_id, **{field: value})
+    repo.log(employee.id, "новости: изменена", edit_id)
+    await state.clear()
+    post = await repo.get_news(edit_id)
+    await message.answer("✅ Новость изменена в ленте.", reply_markup=main_menu(employee.role, False))
+    await message.answer(
+        "Прислать читателям обновлённую версию?",
+        reply_markup=inline([[("📣 Разослать заново", f"nw:ru:{edit_id}")], [("Не надо", "nw:ru:no")]]),
+    )
+
+
+@router.message(NewsEdit.title, F.text)
+async def edit_title(message: Message, state: FSMContext, repo: Repository, employee: Employee) -> None:
+    title = message.text.strip()
+    if not title or len(title) > TITLE_MAX:
+        await message.answer(f"Заголовок нужен длиной до {TITLE_MAX} символов.")
+        return
+    await apply_edit(message, state, repo, employee, "title", title)
+
+
+@router.message(NewsEdit.text, F.text)
+async def edit_text(message: Message, state: FSMContext, repo: Repository, employee: Employee) -> None:
+    text = message.text.strip()
+    if not text or len(text) > TEXT_MAX:
+        await message.answer(f"Текст нужен длиной до {TEXT_MAX} символов.")
+        return
+    await apply_edit(message, state, repo, employee, "text", text)
+
+
+@router.message(NewsEdit.photo, F.photo)
+async def edit_photo(message: Message, state: FSMContext, repo: Repository, employee: Employee) -> None:
+    await apply_edit(message, state, repo, employee, "photo", message.photo[-1].file_id)
+
+
+@router.callback_query(NewsEdit.photo, F.data == "nw:nophoto2")
+async def edit_remove_photo(call: CallbackQuery, state: FSMContext, repo: Repository, employee: Employee) -> None:
+    await call.answer()
+    await apply_edit(call.message, state, repo, employee, "photo", "")
+
+
+@router.callback_query(F.data.startswith("nw:ru:"))
+async def resend(call: CallbackQuery, bot: Bot, repo: Repository, employee: Employee) -> None:
+    await call.answer()
+    await call.message.edit_reply_markup(reply_markup=None)
+    key = call.data.removeprefix("nw:ru:")
+    if key == "no":
+        return
+    post = await repo.get_news(key)
+    if post is None or (post.author_id != employee.id and employee.role not in MODERATORS):
+        await call.message.answer("Рассылка недоступна.")
+        return
+    names = await concept_names(repo)
+    people = await recipients(repo, post.concept_id, employee.id)
+    sent = 0
+    for person in people:
+        try:
+            await send_post(bot, person.telegram_id, post, names)
+            sent += 1
+        except Exception:
+            log.warning("Новость %s не доставлена сотруднику %s", post.id, person.id, exc_info=True)
+        await asyncio.sleep(0.05)
+    await call.message.answer(f"📣 Доставлено: {sent} из {len(people)}.")
