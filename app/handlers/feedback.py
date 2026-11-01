@@ -218,12 +218,15 @@ async def finish(
     )
 
 
-def card_text(fb: Feedback, restaurant_name: str, status: str) -> str:
+def card_text(fb: Feedback, restaurant_name: str, status: str, place: str = "") -> str:
     tags = " ".join(t for t in (hashtag(fb.category), hashtag(restaurant_name)) if t)
     author = "🕶 анонимно" if fb.anonymous else f"📇 {html.quote(fb.contact)}"
     body = html.quote(fb.text) if fb.text else "<i>(без текста, см. вложение)</i>"
+    where = f"📍 {html.quote(restaurant_name)}" + (f", {html.quote(place)}" if place else "")
     return (
-        f"💬 <b>Обращение №{fb.id}</b>\n{tags}\n\n{body}\n\n"
+        f"💬 <b>Обращение №{fb.id}</b>\n{tags}\n"
+        + (f"{where}\n" if restaurant_name else "")
+        + f"\n{body}\n\n"
         f"Автор: {author}\nСтатус: <b>{status}</b>"
     )
 
@@ -243,7 +246,10 @@ async def send_card(
     try:
         card = await bot.send_message(
             config.feedback_chat_id,
-            card_text(fb, restaurant.name if restaurant else "", "новое"),
+            card_text(
+                fb, restaurant.name if restaurant else "", "новое",
+                ", ".join(x for x in (restaurant.city, restaurant.address) if x) if restaurant else "",
+            ),
             reply_markup=status_kb(fb.id),
         )
         if media_chat_id and media_message_id:

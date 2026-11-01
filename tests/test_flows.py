@@ -90,8 +90,10 @@ async def test_anonymous_feedback_keeps_no_trace(h, repo):
     rows = await repo.backend.read_all(S.FEEDBACK)
     assert rows[0]["анонимно"] == "да" and rows[0]["контакт"] == ""
     assert rows[0]["ресторан_id"] == "r1"  # подставлен из профиля
+    assert rows[0]["ресторан"] == "Траттория на Невском"  # название для читаемости таблицы
     card = h.last_text(FEEDBACK_CHAT)
     assert "#идея" in card and "#Траттория_на_Невском" in card and "анонимно" in card
+    assert "📍 Траттория на Невском" in card
     assert "Петрова" not in card and "70" not in card.replace("№1", "")
     assert await repo.flush_activity() == 0  # анонимное обращение не попало в журнал
 
