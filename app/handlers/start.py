@@ -9,9 +9,10 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from aiogram import Bot, F, Router, html
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto, Message
 
 from app.groups import group_of
 from app.handlers.common import HasAccess, Registered
@@ -26,6 +27,8 @@ from app.texts import DEFAULTS
 log = logging.getLogger(__name__)
 
 KIND = "материал"
+GUIDE_DIR = Path(__file__).resolve().parent.parent / "assets" / "guide"
+GUIDE_BTN = [("📖 Как пользоваться ботом", "st:guide")]
 
 router = Router(name="start")
 router.message.filter(Registered(), HasAccess(Section.ONBOARDING))
@@ -49,11 +52,12 @@ async def _view(repo: Repository, employee: Employee):
     greeting = greeting or await repo.get_text("старт_приветствие", DEFAULTS["старт_приветствие"])
     head = f"🌱 <b>Мой старт</b>\n{html.quote(await label(repo, employee))}\n{html.quote(greeting)}\n"
     if not items:
-        return head + "\nЧек-лист пока пуст: материалы для новичков ещё не добавлены.", None
+        return head + "\nЧек-лист пока пуст: материалы для новичков ещё не добавлены.", inline([GUIDE_BTN])
     done_ids = await repo.done_ids(employee.id, KIND)
     done = sum(1 for m in items if m.id in done_ids)
     text = f"{head}\n{_bar(done, len(items))} {done} из {len(items)}"
     rows = [[(f"{'✅' if m.id in done_ids else '⬜'} {m.title[:50]}", f"st:m:{m.id}")] for m in items]
+    rows.append(GUIDE_BTN)
     if await picker(repo, employee, "st"):
         rows.append([("🔀 Другая концепция", "st:pick")])
     return text, inline(rows)
@@ -85,6 +89,18 @@ async def concept_chosen(call: CallbackQuery, repo: Repository, employee: Employ
     text, markup = await _view(repo, employee)
     await call.message.edit_text(text, reply_markup=markup)
     await call.answer()
+
+
+@router.callback_query(F.data == "st:guide")
+async def guide(call: CallbackQuery, employee: Employee, repo: Repository) -> None:
+    await call.answer()
+    files = sorted(GUIDE_DIR.glob("*.png"))
+    if not files:
+        await call.message.answer("Инструкция пока недоступна.")
+        return
+    media = [InputMediaPhoto(media=BufferedInputFile(f.read_bytes(), f.name)) for f in files[:10]]
+    await call.message.answer_media_group(media)
+    repo.log(employee.id, "старт: инструкция")
 
 
 @router.callback_query(F.data == "st:back")
