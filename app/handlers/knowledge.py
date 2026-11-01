@@ -40,9 +40,12 @@ async def _categories_view(repo: Repository, employee: Employee) -> tuple[str, o
     used = {m.category_id for m in materials}
     cats = [c for c in await repo.list_categories() if c.id in used]
     head = html.quote(await label(repo, employee))
-    if not cats:
-        return f"📚 {head}В базе знаний пока нет материалов.", None
     rows = [[(c.name, f"kb:cat:{c.id}")] for c in cats]
+    # Карточки продуктов живут внутри базы знаний
+    if await repo.list_product_categories(concept):
+        rows.append([("🍽 Карточки продуктов", "pr:cats")])
+    if not rows:
+        return f"📚 {head}В базе знаний пока нет материалов.", None
     if await picker(repo, employee, "kb"):
         rows.append([("🔀 Другая концепция", "kb:pick")])
     return f"📚 <b>База знаний</b>\n{head}Выберите раздел:", inline(rows)

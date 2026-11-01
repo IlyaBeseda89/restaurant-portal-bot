@@ -28,14 +28,14 @@ async def test_bistro_employee_sees_only_bistro_and_common_products(h, repo):
     code, fio = await other_employee(repo, ресторан_id="r3")  # Бистро Центр
     await register(h, 200, f"employee_{code}", fio)
     await h.send(200, BTN_PRODUCTS)
-    assert texts(h.last_markup(200)) == ["Бургеры", "Напитки"]  # ни одного блюда «Траттории»
+    assert texts(h.last_markup(200)) == ["Бургеры", "Напитки", "⬅️ В базу знаний"]  # ни одного блюда «Траттории»
 
 
 async def test_employee_without_restaurant_sees_only_common(h, repo):
     code, fio = await other_employee(repo)  # ресторан не указан
     await register(h, 201, f"employee_{code}", fio)
     await h.send(201, BTN_PRODUCTS)
-    assert texts(h.last_markup(201)) == ["Напитки"]  # только общая карточка
+    assert texts(h.last_markup(201)) == ["Напитки", "⬅️ В базу знаний"]  # только общая карточка
     await h.send(201, BTN_KNOWLEDGE)
     await h.click(201, "kb:cat:menu")
     assert texts(last_edit(h).reply_markup) == ["⬅️ Ко всем разделам"]  # материалы по меню у каждой концепции свои
@@ -47,7 +47,7 @@ async def test_restaurant_without_concept_gets_only_common(h, repo):
     code, fio = await other_employee(repo, ресторан_id="r9")
     await register(h, 202, f"employee_{code}", fio)
     await h.send(202, BTN_PRODUCTS)
-    assert texts(h.last_markup(202)) == ["Напитки"]
+    assert texts(h.last_markup(202)) == ["Напитки", "⬅️ В базу знаний"]
 
 
 async def test_cannot_open_other_concept_dish_by_id(h, repo):
@@ -61,7 +61,7 @@ async def test_cannot_open_other_concept_dish_by_id(h, repo):
 async def test_moderator_is_bound_to_own_concept(h):
     await register(h, 204, "moderator_DEMOMOD1", "Волкова Мария Андреевна")  # модератор «Траттории»
     await h.send(204, BTN_PRODUCTS)
-    assert texts(h.last_markup(204)) == ["Салаты", "Горячее", "Десерты", "Напитки"]
+    assert texts(h.last_markup(204)) == ["Салаты", "Горячее", "Десерты", "Напитки", "⬅️ В базу знаний"]
     assert "Бургеры" not in texts(h.last_markup(204))
 
 
@@ -76,7 +76,7 @@ async def test_hr_chooses_concept_first(h):
     await h.click(205, f"sc:pr:{concept_key('bistro')}")
     edit = last_edit(h)
     assert "Концепция: Бистро" in edit.text
-    assert texts(edit.reply_markup) == ["Бургеры", "Напитки", "🔀 Другая концепция"]
+    assert texts(edit.reply_markup) == ["Бургеры", "Напитки", "🔀 Другая концепция", "⬅️ В базу знаний"]
 
     await h.click(205, "pr:pick")  # смена концепции
     await h.click(205, f"sc:pr:{concept_key('trat')}")
@@ -112,7 +112,7 @@ async def test_flag_no_restricts_even_privileged_role(h, repo):
     )
     await register(h, 208, f"tu_{code}", fio)
     await h.send(208, BTN_PRODUCTS)
-    assert texts(h.last_markup(208)) == ["Бургеры", "Напитки"]  # только Бистро, выбора нет
+    assert texts(h.last_markup(208)) == ["Бургеры", "Напитки", "⬅️ В базу знаний"]  # только Бистро, выбора нет
 
 
 async def test_empty_flag_follows_role(h, repo):

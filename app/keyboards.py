@@ -36,9 +36,8 @@ def main_menu(role: Role, is_newbie: bool) -> ReplyKeyboardMarkup:
     rows: list[list[str]] = []
     if is_newbie:
         rows.append([BTN_START])
-    rows.append([BTN_KNOWLEDGE, BTN_PRODUCTS])
+    rows.append([BTN_KNOWLEDGE, BTN_NEWS])
     rows.append([BTN_TRAININGS, BTN_FEEDBACK])
-    rows.append([BTN_NEWS])
 
     extra: list[str] = []
     if can(role, Section.TRAINING_REQUEST):

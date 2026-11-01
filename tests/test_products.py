@@ -41,7 +41,7 @@ async def test_categories_and_dishes_by_concept(h, repo):
     await register(h, 100, "employee_DEMOEMP1", "Петрова Анна Сергеевна")  # концепция trat
     await h.send(100, BTN_PRODUCTS)
     cats = inline_texts(h.last_markup(100))
-    assert cats == ["Салаты", "Горячее", "Десерты", "Напитки"]  # «Бургеры» чужой концепции нет
+    assert cats == ["Салаты", "Горячее", "Десерты", "Напитки", "⬅️ В базу знаний"]  # «Бургеры» чужой концепции нет
 
     await h.click(100, f"pr:c:{category_key('Десерты')}")
     names = inline_texts(edits(h)[-1].reply_markup)
