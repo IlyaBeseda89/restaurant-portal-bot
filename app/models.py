@@ -168,6 +168,20 @@ class Feedback:
 
 
 @dataclass
+class NewsPost:
+    id: str
+    date: str
+    author_id: str
+    author: str
+    title: str
+    text: str
+    concept_id: str  # пусто = для всех концепций
+    photo: str = ""
+    visible: bool = True
+    sent: int = 0
+
+
+@dataclass
 class Topic:
     id: str
     name: str

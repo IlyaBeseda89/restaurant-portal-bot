@@ -54,6 +54,8 @@ class Section(str, Enum):
     MANAGE_EMPLOYEES = "manage_employees"
     MANAGE_CONTENT = "manage_content"
     STATS = "stats"
+    NEWS_READ = "news_read"
+    NEWS_POST = "news_post"
 
 
 _ALL = set(Role)
@@ -75,6 +77,9 @@ ACCESS: dict[Section, set[Role]] = {
     Section.MANAGE_EMPLOYEES: {_M, _MOD, _HR},
     Section.MANAGE_CONTENT: {_M, _MOD, _HR},
     Section.STATS: {_T, _M, _MOD, _HR},
+    Section.NEWS_READ: _ALL,
+    # плюс все из группы «руководители» (шефы и т. п.), см. handlers/news.py
+    Section.NEWS_POST: {_D, _T, _M, _MOD, _HR},
 }
 
 

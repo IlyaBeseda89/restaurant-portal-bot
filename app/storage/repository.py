@@ -23,6 +23,7 @@ from app.models import (
     Event,
     Feedback,
     Material,
+    NewsPost,
     Product,
     Restaurant,
     Topic,
@@ -35,6 +36,19 @@ from app.models import (
 )
 from app.roles import Role
 from app.storage.backend import Row, TableBackend
+
+
+def _news(row: Row) -> NewsPost | None:
+    if not row.get("id", "").strip() or not row.get("заголовок", "").strip():
+        return None
+    return NewsPost(
+        id=row["id"].strip(), date=row.get("дата", "").strip(), author_id=row.get("автор_id", "").strip(),
+        author=row.get("автор", "").strip(), title=row.get("заголовок", "").strip(),
+        text=row.get("текст", ""), concept_id=row.get("концепция_id", "").strip(),
+        photo=row.get("фото", "").strip(),
+        visible=row.get("статус", "").strip().lower() != "скрыто",
+        sent=parse_int(row.get("разослано"), 0),
+    )
 
 
 def _employee(row: Row) -> Employee | None:
@@ -645,6 +659,38 @@ class Repository:
 
     async def set_feedback_status(self, feedback_id: str, status: str) -> bool:
         return await self.backend.update(S.FEEDBACK, "id", feedback_id, {"статус": status})
+
+    # ---------- новости ----------
+
+    async def list_news(self, concept: str | None = None) -> list[NewsPost]:
+        """Опубликованные новости, новые сверху.
+
+        concept=None: все (для тех, кто работает со всеми концепциями);
+        иначе общие и новости этой концепции ("" = только общие).
+        """
+        posts = [p for p in (_news(r) for r in await self.backend.read_all(S.NEWS)) if p and p.visible]
+        if concept is not None:
+            posts = [p for p in posts if not p.concept_id or p.concept_id == concept]
+        return sorted(posts, key=lambda p: parse_int(p.id, 0), reverse=True)
+
+    async def get_news(self, news_id: str) -> NewsPost | None:
+        return next((p for p in await self.list_news() if p.id == news_id), None)
+
+    async def add_news(self, post: NewsPost) -> str:
+        async with self._id_lock:
+            post.id = await self._next_id(S.NEWS)
+            await self.backend.append(S.NEWS, {
+                "id": post.id, "дата": self._now_str(), "автор_id": post.author_id, "автор": post.author,
+                "заголовок": post.title, "текст": post.text, "концепция_id": post.concept_id,
+                "фото": post.photo, "статус": "опубликовано", "разослано": str(post.sent),
+            })
+        return post.id
+
+    async def set_news_sent(self, news_id: str, sent: int) -> bool:
+        return await self.backend.update(S.NEWS, "id", news_id, {"разослано": str(sent)})
+
+    async def hide_news(self, news_id: str) -> bool:
+        return await self.backend.update(S.NEWS, "id", news_id, {"статус": "скрыто"})
 
     # ---------- тексты ----------
 

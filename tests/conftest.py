@@ -106,6 +106,7 @@ class Harness:
             feedback,
             knowledge,
             menu,
+            news,
             products,
             registration,
             schedule_add,
@@ -119,7 +120,7 @@ class Harness:
         # Для отдельного диспетчера на каждый тест отцепляем их от прошлого.
         for r in (registration.router, feedback.chat_router, knowledge.router, products.router,
                   trainings.router, schedule_add.router, training_requests.router, admin.router, start.router, stats.router,
-                  feedback.router,
+                  feedback.router, news.router,
                   menu.router):
             r._parent_router = None
 

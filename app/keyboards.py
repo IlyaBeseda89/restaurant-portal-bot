@@ -18,6 +18,7 @@ BTN_TRAININGS = "🎓 Тренинги"
 BTN_FEEDBACK = "💬 Обратная связь"
 BTN_HELP = "❓ Помощь и контакты"
 BTN_START = "🌱 Мой старт"
+BTN_NEWS = "📰 Новости"
 BTN_REQUEST = "📋 Заявка на тренинг"
 BTN_REQUESTS_INBOX = "🗂 Заявки"
 BTN_SCHEDULE = "🗓 Расписание"
@@ -27,7 +28,7 @@ BTN_CANCEL = "✖️ Отмена"
 
 MENU_BUTTONS = {
     BTN_KNOWLEDGE, BTN_PRODUCTS, BTN_TRAININGS, BTN_FEEDBACK, BTN_HELP, BTN_START,
-    BTN_REQUEST, BTN_REQUESTS_INBOX, BTN_SCHEDULE, BTN_ADMIN, BTN_STATS,
+    BTN_REQUEST, BTN_REQUESTS_INBOX, BTN_SCHEDULE, BTN_ADMIN, BTN_STATS, BTN_NEWS,
 }
 
 
@@ -37,6 +38,7 @@ def main_menu(role: Role, is_newbie: bool) -> ReplyKeyboardMarkup:
         rows.append([BTN_START])
     rows.append([BTN_KNOWLEDGE, BTN_PRODUCTS])
     rows.append([BTN_TRAININGS, BTN_FEEDBACK])
+    rows.append([BTN_NEWS])
 
     extra: list[str] = []
     if can(role, Section.TRAINING_REQUEST):
