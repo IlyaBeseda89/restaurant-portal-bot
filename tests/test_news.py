@@ -72,3 +72,42 @@ async def test_author_can_hide(h, repo):
     assert (await repo.list_news())
     await h.click(205, f"nw:h:{post.id}")
     assert not await repo.list_news()
+
+
+async def test_edit_in_preview_before_publishing(h, repo):
+    await _regs(h)
+    await h.send(205, BTN_NEWS)
+    await h.click(205, "nw:new")
+    await h.send(205, "Старый заголовок")
+    await h.send(205, "Текст")
+    await h.click(205, "nw:nophoto")
+    await h.click(205, "nw:a:all")
+    await h.click(205, "nw:e:t")
+    await h.send(205, "Новый заголовок")
+    assert "nw:go:feed" in str(h.last_markup(205))  # снова предпросмотр
+    await h.click(205, "nw:go:feed")
+    assert (await repo.list_news())[0].title == "Новый заголовок"
+
+
+async def test_edit_after_publishing_marks_edited_and_can_resend(h, repo):
+    await _regs(h)
+    await _write(h, 205, "nw:a:all", push="feed")
+    post = (await repo.list_news())[0]
+    await h.click(205, f"nw:x:{post.id}")
+    await h.click(205, "nw:f:x")
+    await h.send(205, "Исправленный текст")
+    post = (await repo.list_news())[0]
+    assert post.text == "Исправленный текст" and post.edited
+    assert not any("Исправленный" in str(getattr(m, "text", "")) for m in h.session.sent(100))
+    await h.click(205, f"nw:ru:{post.id}")
+    assert any("Исправленный" in str(getattr(m, "text", "")) for m in h.session.sent(100))
+
+
+async def test_stranger_cannot_edit_news(h, repo):
+    await _regs(h)
+    await _write(h, 205, "nw:a:all", push="feed")
+    post = (await repo.list_news())[0]
+    await h.click(100, f"nw:x:{post.id}")
+    await h.click(100, "nw:f:x")
+    await h.send(100, "Хакнули")
+    assert (await repo.list_news())[0].text == "С понедельника меняем меню"

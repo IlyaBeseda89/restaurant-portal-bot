@@ -180,6 +180,7 @@ class NewsPost:
     photo: str = ""
     visible: bool = True
     sent: int = 0
+    edited: str = ""  # когда правили после публикации
 
 
 @dataclass

@@ -48,6 +48,7 @@ def _news(row: Row) -> NewsPost | None:
         photo=row.get("фото", "").strip(),
         visible=row.get("статус", "").strip().lower() != "скрыто",
         sent=parse_int(row.get("разослано"), 0),
+        edited=row.get("изменено", "").strip(),
     )
 
 
@@ -705,6 +706,13 @@ class Repository:
 
     async def set_news_sent(self, news_id: str, sent: int) -> bool:
         return await self.backend.update(S.NEWS, "id", news_id, {"разослано": str(sent)})
+
+    async def edit_news(self, news_id: str, **fields: str) -> bool:
+        """Правка опубликованной новости: fields с ключами title/text/photo, ставит отметку «изменено»."""
+        columns = {"title": "заголовок", "text": "текст", "photo": "фото"}
+        changes = {columns[k]: v for k, v in fields.items() if k in columns}
+        changes["изменено"] = self._now_str()
+        return await self.backend.update(S.NEWS, "id", news_id, changes)
 
     async def hide_news(self, news_id: str) -> bool:
         return await self.backend.update(S.NEWS, "id", news_id, {"статус": "скрыто"})
