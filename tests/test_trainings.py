@@ -150,3 +150,29 @@ async def test_hr_marks_employee_as_trainer(h, repo):
     assert any(t.id == emp.id for t in await repo.trainers())
     await h.click(700, f"ad:eh:{emp.id}")
     assert not any(t.id == emp.id for t in await repo.trainers())
+
+
+async def test_participant_search_ignores_order_patronymic_and_typos(h, repo):
+    await reg_all(h)
+    # в демо-данных зарегистрирована «Петрова Анна Сергеевна»
+    for text in ["Анна Петрова", "петрова анна сергеевна", "Сергеевна Анна Петрова", "Петрова Ана"]:
+        found, missing = await repo.match_participants([text])
+        assert [e.full_name for e in found] == ["Петрова Анна Сергеевна"] and not missing, text
+    found, missing = await repo.match_participants(["Петрова", "Иванов Пётр"])
+    assert not found and len(missing) == 2  # одной фамилии мало, чужого нет
+
+
+async def test_admin_search_finds_name_in_any_order(h, repo):
+    await reg_all(h)
+    assert [e.full_name for e in await repo.find_employees("Анна Петрова")] == ["Петрова Анна Сергеевна"]
+
+
+async def test_sheet_rows_have_readable_names(h, repo):
+    await reg_all(h)
+    event = (await repo.list_events())[0]
+    await repo.enroll(event.id, "1")
+    row = (await repo.backend.read_all(S.ENROLLMENTS))[-1]
+    assert row["сотрудник"] == "Петрова Анна Сергеевна" and row["ресторан"] == "Траттория на Невском"
+    rid = await repo.add_request("r1", "3", "2", "онлайн", "онлайн", "любые", "Петрова Анна Сергеевна", 1)
+    req = next(r for r in await repo.backend.read_all(S.REQUESTS) if r["id"] == rid)
+    assert req["заявитель"] == "Кузнецов Илья Петрович" and req["ресторан"] == "Траттория на Невском" and req["тема"]
