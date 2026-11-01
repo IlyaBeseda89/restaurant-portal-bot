@@ -656,6 +656,7 @@ class Repository:
     # ---------- обратная связь ----------
 
     async def add_feedback(self, fb: Feedback) -> str:
+        restaurant = await self.get_restaurant(fb.restaurant_id) if fb.restaurant_id else None
         async with self._id_lock:
             fb.id = await self._next_id(S.FEEDBACK)
             await self.backend.append(S.FEEDBACK, {
@@ -668,6 +669,8 @@ class Repository:
                 "текст": fb.text,
                 "вложение": "да" if fb.has_attachment else "нет",
                 "статус": "новое",
+                "ресторан": restaurant.name if restaurant else "",
+                "город_адрес": ", ".join(x for x in (restaurant.city, restaurant.address) if x) if restaurant else "",
             })
         return fb.id
 
