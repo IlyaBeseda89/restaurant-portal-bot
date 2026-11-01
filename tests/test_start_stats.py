@@ -76,3 +76,14 @@ async def test_stats_moderator_scoped_to_concept(h, repo):
     await register(h, 400, "moderator_DEMOMOD1", "Волкова Мария Андреевна")
     await h.send(400, BTN_STATS)
     assert "концепция" in h.last_text(400)
+
+
+async def test_guide_slides_sent(h, repo):
+    from aiogram.methods import SendMediaGroup
+
+    await reg(h)
+    await h.send(100, BTN_START)
+    assert "st:guide" in data(h.last_markup(100))
+    await h.click(100, "st:guide")
+    groups = [m for m in h.session.calls if isinstance(m, SendMediaGroup) and m.chat_id == 100]
+    assert groups and len(groups[-1].media) == 7
