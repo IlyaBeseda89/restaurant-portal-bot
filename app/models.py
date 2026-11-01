@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from difflib import SequenceMatcher
 
 from app.roles import Role
 
@@ -52,6 +53,34 @@ def parse_int(value: str | None, default: int = 0) -> int:
 def normalize_name(value: str) -> str:
     """Для сравнения ФИО: без регистра, ё = е, лишние пробелы убраны."""
     return " ".join(value.lower().replace("ё", "е").split())
+
+
+def name_words(value: str) -> list[str]:
+    """Слова ФИО без регистра и ё, знаки препинания не мешают."""
+    cleaned = "".join(ch if ch.isalnum() else " " for ch in value.lower().replace("ё", "е"))
+    return cleaned.split()
+
+
+def _close(a: str, b: str) -> bool:
+    """Слова совпадают или отличаются опечаткой (для слов от 3 букв)."""
+    return a == b or (min(len(a), len(b)) >= 3 and SequenceMatcher(None, a, b).ratio() >= 0.84)
+
+
+def name_matches(query: str, full_name: str, fuzzy: bool = False) -> bool:
+    """Все слова запроса есть в ФИО, порядок любой: «Татьяна Ким» находит «Ким Татьяна Ивановна».
+
+    С fuzzy=True прощаются небольшие опечатки. Каждое слово ФИО засчитывается один раз.
+    """
+    wanted = name_words(query)
+    pool = name_words(full_name)
+    if not wanted:
+        return False
+    for word in wanted:
+        hit = next((p for p in pool if (_close(word, p) if fuzzy else p == word)), None)
+        if hit is None:
+            return False
+        pool.remove(hit)
+    return True
 
 
 @dataclass

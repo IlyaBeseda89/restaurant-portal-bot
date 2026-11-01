@@ -28,6 +28,8 @@ from app.models import (
     Restaurant,
     Topic,
     TrainingRequest,
+    name_matches,
+    name_words,
     normalize_name,
     parse_bool,
     parse_date,
@@ -308,7 +310,10 @@ class Repository:
         q = normalize_name(query)
         if not q:
             return []
-        found = [e for e in await self.list_employees() if q in normalize_name(e.full_name)]
+        everyone = await self.list_employees()
+        found = [e for e in everyone if q in normalize_name(e.full_name) or name_matches(query, e.full_name)]
+        if not found:
+            found = [e for e in everyone if name_matches(query, e.full_name, fuzzy=True)]
         return sorted(found, key=lambda e: normalize_name(e.full_name))[:limit]
 
     async def add_material(
@@ -472,12 +477,22 @@ class Repository:
                 return e
         return None
 
+    async def person_labels(self, employee_id: str) -> tuple[str, str]:
+        """ФИО и название ресторана для читаемых колонок таблицы (пусто, если не нашли)."""
+        employee = await self.get_employee(employee_id)
+        if employee is None:
+            return "", ""
+        restaurant = await self.get_restaurant(employee.restaurant_id) if employee.restaurant_id else None
+        return employee.full_name, restaurant.name if restaurant else ""
+
     async def _set_enrollment(self, event_id: str, employee_id: str, status: str) -> None:
         current = await self.get_enrollment(event_id, employee_id)
         if current is None:
+            name, restaurant = await self.person_labels(employee_id)
             await self.backend.append(S.ENROLLMENTS, {
                 "id": await self._next_id(S.ENROLLMENTS), "событие_id": event_id,
                 "сотрудник_id": employee_id, "статус": status, "дата": self._now_str(), "оценка": "",
+                "сотрудник": name, "ресторан": restaurant,
             })
         else:
             await self.backend.update(S.ENROLLMENTS, "id", current.id, {"статус": status, "дата": self._now_str()})
@@ -574,13 +589,18 @@ class Repository:
         self, restaurant_id: str, applicant_id: str, topic_id: str, fmt: str, venue: str,
         desired_dates: str, participants: str, count: int,
     ) -> str:
+        name, restaurant = await self.person_labels(applicant_id)
+        topic = await self.get_topic(topic_id)
+        restaurant_obj = await self.get_restaurant(restaurant_id) if restaurant_id else None
         async with self._id_lock:
             request_id = await self._next_id(S.REQUESTS)
             await self.backend.append(S.REQUESTS, {
                 "id": request_id, "дата_создания": self._now_str(), "ресторан_id": restaurant_id,
                 "заявитель_id": applicant_id, "тема_id": topic_id, "формат": fmt, "площадка": venue,
                 "желаемые_даты": desired_dates, "участники": participants, "количество": str(count),
-                "статус": "новая",
+                "статус": "новая", "заявитель": name,
+                "ресторан": restaurant_obj.name if restaurant_obj else restaurant,
+                "тема": topic.name if topic else "",
             })
         return request_id
 
@@ -616,18 +636,21 @@ class Repository:
     async def match_participants(self, names: list[str]) -> tuple[list[Employee], list[str]]:
         """Находит среди зарегистрированных сотрудников тех, кто назван в заявке.
 
-        Совпадением считается ФИО целиком или «Фамилия Имя» без отчества, но только если
-        такой человек один. Возвращает (найденные, не найденные имена).
+        Нужно минимум два слова (фамилия и имя), порядок любой, отчество можно не писать,
+        небольшие опечатки прощаются. Совпадением считается только единственный подходящий человек.
+        Возвращает (найденные, не найденные имена).
         """
         staff = [e for e in await self.list_employees() if e.active and e.telegram_id]
         found: dict[str, Employee] = {}
         missing: list[str] = []
         for name in names:
-            tokens = normalize_name(name).split()
-            hits = [
-                e for e in staff
-                if len(tokens) >= 2 and normalize_name(e.full_name).split()[:len(tokens)] == tokens
-            ]
+            if len(name_words(name)) < 2:  # одной фамилии мало: можно перепутать людей
+                missing.append(name)
+                continue
+            # сначала точное совпадение слов в любом порядке, затем с прощением опечаток
+            hits = [e for e in staff if name_matches(name, e.full_name)]
+            if not hits:
+                hits = [e for e in staff if name_matches(name, e.full_name, fuzzy=True)]
             if len(hits) == 1:
                 found[hits[0].id] = hits[0]
             else:
