@@ -38,8 +38,8 @@ async def test_register_newbie_gets_start_section(h):
 
 async def test_unknown_person_goes_to_hr(h, repo):
     await h.send(30, "/start employee_NOPE")
-    await h.send(30, "Иванов Иван Иванович")
     await h.send(30, "+79990000000")
+    await h.send(30, "Иванов Иван Иванович")
     assert "передал заявку HR" in h.last_text(30)
     hr = h.last_text(HR_CHAT)
     assert "Иванов Иван Иванович" in hr and "не найден" in hr
@@ -49,8 +49,8 @@ async def test_unknown_person_goes_to_hr(h, repo):
 async def test_link_cannot_be_reused(h):
     await register(h, 40, "employee_DEMOEMP1", "Петрова Анна Сергеевна")
     await h.send(41, "/start employee_DEMOEMP1")
-    await h.send(41, "Петрова Анна Сергеевна")
     await h.send(41, "+79001112233")
+    await h.send(41, "Петрова Анна Сергеевна")
     assert "уже зарегистрирован другой" in h.last_text(HR_CHAT)
 
 
@@ -135,3 +135,21 @@ async def test_feedback_without_profile_restaurant_requires_choice(h, repo):
     await h.click(95, "fb:rest:r3")
     rows = await repo.backend.read_all(S.FEEDBACK)
     assert rows[0]["ресторан_id"] == "r3"
+
+
+async def test_registration_accepts_name_in_any_order(h, repo):
+    await h.send(90, "/start employee_DEMOEMP1")
+    await h.send(90, "+79001234567")
+    await h.send(90, "Анна Петрова")  # имя первым, без отчества
+    assert "Нашёл вас" in " ".join(str(getattr(m, "text", "")) for m in h.session.sent(90))
+    await h.click(90, "reg:yes")
+    assert (await repo.get_employee_by_telegram(90)).id == "1"
+
+
+async def test_registration_by_phone_when_name_is_wrong(h, repo):
+    await repo.update_employee("1", телефон="+7 (900) 111-22-33")
+    await h.send(91, "/start employee_DEMOEMP1")
+    await h.send(91, "89001112233")  # тот же номер в другом написании
+    await h.send(91, "Аня")  # короткое имя не мешает: телефон совпал
+    await h.send(91, "Аня Петрова")
+    assert "Нашёл вас" in " ".join(str(getattr(m, "text", "")) for m in h.session.sent(91))

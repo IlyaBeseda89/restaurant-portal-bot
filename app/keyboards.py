@@ -15,7 +15,7 @@ from app.roles import Role, Section, can
 BTN_KNOWLEDGE = "📚 База знаний"
 BTN_PRODUCTS = "🍽 Карточки продуктов"
 BTN_TRAININGS = "🎓 Тренинги"
-BTN_FEEDBACK = "💬 Обратная связь"
+BTN_FEEDBACK = "💬 Голос команды"
 BTN_HELP = "❓ Помощь и контакты"
 BTN_START = "🌱 Мой старт"
 BTN_NEWS = "📰 Новости"

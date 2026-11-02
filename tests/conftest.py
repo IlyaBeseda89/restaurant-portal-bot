@@ -171,6 +171,6 @@ async def h(repo, config) -> Harness:
 
 async def register(h: Harness, user_id: int, payload: str, fio: str, phone: str = "+79001234567") -> None:
     await h.send(user_id, f"/start {payload}")
-    await h.send(user_id, fio)
     await h.send(user_id, phone)
+    await h.send(user_id, fio)
     await h.click(user_id, "reg:yes")

@@ -120,3 +120,14 @@ async def test_empty_flag_follows_role(h, repo):
     await register(h, 209, f"employee_{code}", fio)
     await h.send(209, BTN_PRODUCTS)
     assert "Бургеры" not in texts(h.last_markup(209))
+
+
+async def test_hidden_concept_is_not_offered(repo):
+    concepts = await repo.list_concepts()
+    hidden = concepts[0]
+    await repo.backend.update(S.CONCEPTS, "id", hidden.id, {"активна": "нет"})
+    assert hidden.id not in {c.id for c in await repo.list_concepts()}
+    assert hidden.id in {c.id for c in await repo.list_concepts(active_only=False)}
+    # рестораны скрытой концепции не предлагаются при добавлении сотрудников, но по id находятся
+    assert all(r.concept_id != hidden.id for r in await repo.list_restaurants())
+    assert any(r.concept_id == hidden.id for r in await repo.list_restaurants(active_only=False))

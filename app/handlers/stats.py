@@ -39,7 +39,7 @@ async def _scope(repo: Repository, viewer: Employee):
     if concept is None:
         return employees, None, "вся компания"
     restaurants = {r.id for r in await repo.list_restaurants(active_only=False) if r.concept_id == concept}
-    names = {c.id: c.name for c in await repo.list_concepts()}
+    names = {c.id: c.name for c in await repo.list_concepts(active_only=False)}
     return [e for e in employees if e.restaurant_id in restaurants], restaurants, f"концепция {names.get(concept, concept)}"
 
 
@@ -113,7 +113,7 @@ async def _summary(repo: Repository, config: Config, viewer: Employee) -> str:
         f for f in await repo.feedback_since(FEEDBACK_DAYS)
         if restaurants is None or f.get("ресторан_id", "").strip() in restaurants
     ]
-    lines += ["", f"💬 <b>Обратная связь за {FEEDBACK_DAYS} дн.</b>"]
+    lines += ["", f"💬 <b>Голос команды за {FEEDBACK_DAYS} дн.</b>"]
     if feedback:
         by_cat = Counter(f.get("категория", "").strip() or "без категории" for f in feedback)
         lines.append(f"Всего: {len(feedback)}. " + ", ".join(f"{html.quote(c)}: {n}" for c, n in by_cat.most_common()))

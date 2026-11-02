@@ -54,8 +54,8 @@ def can_post(employee: Employee) -> bool:
     return can(employee.role, Section.NEWS_POST) or group_of(employee) == LEADERS
 
 
-async def concept_names(repo: Repository) -> dict[str, str]:
-    return {c.id: c.name or c.id for c in await repo.list_concepts()}
+async def concept_names(repo: Repository, active_only: bool = False) -> dict[str, str]:
+    return {c.id: c.name or c.id for c in await repo.list_concepts(active_only=active_only)}
 
 
 def tag(post: NewsPost, names: dict[str, str]) -> str:
@@ -186,7 +186,7 @@ async def got_text(message: Message, state: FSMContext) -> None:
 
 async def ask_audience(message: Message, state: FSMContext, repo: Repository, employee: Employee) -> None:
     base = await repo.concept_of(employee)
-    names = await concept_names(repo)
+    names = await concept_names(repo, active_only=True)
     if base is None:
         rows = [[("🌐 Для всех концепций", "nw:a:all")]]
         rows += [[(f"🏷 {n}", f"nw:a:{concept_key(cid)}")] for cid, n in names.items()]
