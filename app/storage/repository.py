@@ -35,6 +35,7 @@ from app.models import (
     parse_date,
     parse_datetime,
     parse_int,
+    same_phone,
 )
 from app.roles import Role
 from app.storage.backend import Row, TableBackend
@@ -134,10 +135,24 @@ class Repository:
         return None
 
     async def find_unbound_by_name(self, full_name: str) -> list[Employee]:
-        target = normalize_name(full_name)
+        """Ещё не вошедшие сотрудники с таким ФИО: порядок слов любой, отчество можно не писать."""
+        unbound = [e for e in await self.list_employees() if e.telegram_id is None and e.active]
+        exact = [e for e in unbound if normalize_name(e.full_name) == normalize_name(full_name)]
+        if exact:
+            return exact
+        loose = [
+            e for e in unbound
+            if name_matches(full_name, e.full_name) or name_matches(e.full_name, full_name)
+        ]
+        return loose or [
+            e for e in unbound
+            if name_matches(full_name, e.full_name, fuzzy=True) or name_matches(e.full_name, full_name, fuzzy=True)
+        ]
+
+    async def find_unbound_by_phone(self, phone: str) -> list[Employee]:
         return [
             e for e in await self.list_employees()
-            if normalize_name(e.full_name) == target and e.telegram_id is None and e.active
+            if e.telegram_id is None and e.active and same_phone(e.phone, phone)
         ]
 
     async def bind_telegram(self, employee: Employee, telegram_id: int, phone: str) -> bool:
@@ -159,7 +174,10 @@ class Repository:
             )
             for r in rows if r.get("id")
         ]
-        return [x for x in items if x.active or not active_only]
+        if not active_only:
+            return items
+        hidden = {c.id for c in await self.list_concepts(active_only=False) if not c.active}
+        return [x for x in items if x.active and x.concept_id.strip() not in hidden]
 
     async def get_restaurant(self, restaurant_id: str) -> Restaurant | None:
         for r in await self.list_restaurants(active_only=False):
@@ -167,12 +185,16 @@ class Repository:
                 return r
         return None
 
-    async def list_concepts(self) -> list[Concept]:
+    async def list_concepts(self, active_only: bool = True) -> list[Concept]:
         rows = await self.backend.read_all(S.CONCEPTS)
-        return [
-            Concept(id=r["id"], name=r.get("название", ""), moderator_id=r.get("модератор_id", "").strip())
+        items = [
+            Concept(
+                id=r["id"], name=r.get("название", ""), moderator_id=r.get("модератор_id", "").strip(),
+                active=parse_bool(r.get("активна")),
+            )
             for r in rows if r.get("id")
         ]
+        return [c for c in items if c.active or not active_only]
 
     async def concept_of(self, employee: Employee) -> str | None:
         """К какой концепции относится сотрудник.
@@ -187,7 +209,7 @@ class Repository:
         if employee.all_concepts is True:
             return None
         if employee.role is Role.MODERATOR:
-            for c in await self.list_concepts():
+            for c in await self.list_concepts(active_only=False):
                 if c.moderator_id and c.moderator_id == employee.id:
                     return c.id
         elif employee.all_concepts is None and employee.role in CROSS_CONCEPT_ROLES:

@@ -61,6 +61,16 @@ def name_words(value: str) -> list[str]:
     return cleaned.split()
 
 
+def phone_digits(value: str) -> str:
+    """Последние 10 цифр номера: +7 999 123-45-67, 8(999)1234567 и 9991234567 считаются одним номером."""
+    digits = "".join(ch for ch in value if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else ""
+
+
+def same_phone(a: str, b: str) -> bool:
+    return bool(phone_digits(a)) and phone_digits(a) == phone_digits(b)
+
+
 def _close(a: str, b: str) -> bool:
     """Слова совпадают или отличаются опечаткой (для слов от 3 букв)."""
     return a == b or (min(len(a), len(b)) >= 3 and SequenceMatcher(None, a, b).ratio() >= 0.84)
@@ -134,6 +144,7 @@ class Concept:
     id: str
     name: str
     moderator_id: str = ""
+    active: bool = True
 
 
 @dataclass

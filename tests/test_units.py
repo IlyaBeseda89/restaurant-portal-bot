@@ -68,7 +68,7 @@ async def test_match_by_code_and_name(repo):
     r = await match_employee(repo, Invite(Role.EMPLOYEE, "DEMOEMP1"), "петрова  анна сергеевна", 111)
     assert r.employee and r.employee.id == "1"
     r = await match_employee(repo, Invite(Role.EMPLOYEE, "DEMOEMP1"), "Иванов Иван", 111)
-    assert r.employee is None and "ФИО не совпадает" in r.problem
+    assert r.employee is None and "не совпадают" in r.problem
 
 
 async def test_match_by_name_without_code(repo):

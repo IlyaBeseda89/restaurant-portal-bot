@@ -17,7 +17,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.config import Config
 from app.keyboards import BTN_CANCEL, inline, main_menu, share_phone_kb
-from app.models import Employee, normalize_name
+from app.models import Employee, name_matches, same_phone
 from app.roles import Role
 from app.storage.repository import Repository
 from app.texts import DEFAULTS
@@ -57,25 +57,40 @@ class MatchResult:
     problem: str = ""  # почему не нашли — уходит HR
 
 
-async def match_employee(repo: Repository, invite: Invite, full_name: str, telegram_id: int) -> MatchResult:
-    """Сверка с таблицей «Сотрудники»: сначала по коду из ссылки, потом по ФИО."""
+def _same_person(typed: str, recorded: str) -> bool:
+    """Введённое ФИО подходит к записи: любой порядок слов, отчество не обязательно, опечатки прощаются."""
+    return (
+        name_matches(typed, recorded, fuzzy=True) or name_matches(recorded, typed, fuzzy=True)
+    )
+
+
+async def match_employee(
+    repo: Repository, invite: Invite, full_name: str, telegram_id: int, phone: str = "",
+) -> MatchResult:
+    """Сверка с таблицей «Сотрудники».
+
+    По коду из ссылки: подходит, если совпал телефон или ФИО (в любом порядке слов).
+    Без кода: сначала по телефону, затем по ФИО.
+    """
     by_code = await repo.get_employee_by_code(invite.code)
     if by_code is not None:
         if not by_code.active:
             return MatchResult(None, "сотрудник с этим кодом отмечен как неактивный")
         if by_code.telegram_id and by_code.telegram_id != telegram_id:
             return MatchResult(None, "по этой ссылке уже зарегистрирован другой Telegram-аккаунт")
-        if normalize_name(by_code.full_name) != normalize_name(full_name):
-            return MatchResult(None, f"ФИО не совпадает с таблицей (там: {by_code.full_name})")
-        return MatchResult(by_code)
+        if same_phone(by_code.phone, phone) or _same_person(full_name, by_code.full_name):
+            return MatchResult(by_code)
+        return MatchResult(None, f"ФИО и телефон не совпадают с таблицей (там: {by_code.full_name})")
 
-    candidates = await repo.find_unbound_by_name(full_name)
+    candidates = await repo.find_unbound_by_phone(phone) if phone else []
+    if not candidates:
+        candidates = await repo.find_unbound_by_name(full_name)
     if invite.role is not None:
         candidates = [c for c in candidates if c.role == invite.role]
     if len(candidates) == 1:
         return MatchResult(candidates[0])
     if len(candidates) > 1:
-        return MatchResult(None, "в таблице несколько сотрудников с таким ФИО")
+        return MatchResult(None, "в таблице несколько подходящих сотрудников")
     return MatchResult(None, "сотрудник не найден в таблице")
 
 
@@ -101,12 +116,11 @@ async def cmd_start(
         return
 
     await state.update_data(invite_role=invite.role.value if invite.role else "", invite_code=invite.code)
-    await state.set_state(Reg.name)
+    await state.set_state(Reg.phone)
     await message.answer(
         "Здравствуйте! Давайте познакомимся.\n\n"
-        "Напишите, пожалуйста, ваши <b>фамилию, имя и отчество</b> полностью, "
-        "как в трудовом договоре.",
-        reply_markup=ReplyKeyboardRemove(),
+        "Сначала отправьте номер телефона: нажмите кнопку ниже или напишите его.",
+        reply_markup=share_phone_kb(),
     )
 
 
@@ -122,24 +136,8 @@ async def cancel_any(message: Message, state: FSMContext, employee: Employee | N
         )
 
 
-@router.message(Reg.name, F.text)
-async def reg_name(message: Message, state: FSMContext) -> None:
-    name = " ".join(message.text.split())
-    if len(name.split()) < 2 or len(name) > 120:
-        await message.answer("Пожалуйста, напишите фамилию и имя (и отчество, если есть) одним сообщением.")
-        return
-    await state.update_data(full_name=name)
-    await state.set_state(Reg.phone)
-    await message.answer(
-        "Спасибо! Теперь отправьте номер телефона: нажмите кнопку ниже или напишите его.",
-        reply_markup=share_phone_kb(),
-    )
-
-
 @router.message(Reg.phone, F.contact | F.text)
-async def reg_phone(
-    message: Message, state: FSMContext, repo: Repository, config: Config, bot: Bot,
-) -> None:
+async def reg_phone(message: Message, state: FSMContext) -> None:
     if message.contact:
         if message.contact.user_id and message.contact.user_id != message.from_user.id:
             await message.answer("Пожалуйста, отправьте свой собственный номер.")
@@ -154,14 +152,30 @@ async def reg_phone(
     if not phone.startswith("+"):
         phone = "+" + "".join(ch for ch in phone if ch.isdigit())
     await state.update_data(phone=phone)
+    await state.set_state(Reg.name)
+    await message.answer(
+        "Спасибо! Теперь напишите ваши <b>фамилию и имя</b> (отчество по желанию), в любом порядке.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
 
+
+@router.message(Reg.name, F.text)
+async def reg_name(
+    message: Message, state: FSMContext, repo: Repository, config: Config, bot: Bot,
+) -> None:
+    name = " ".join(message.text.split())
+    if len(name.split()) < 2 or len(name) > 120:
+        await message.answer("Пожалуйста, напишите фамилию и имя (и отчество, если есть) одним сообщением.")
+        return
+    await state.update_data(full_name=name)
     data = await state.get_data()
+    phone = data["phone"]
     invite = Invite(role=Role.parse(data.get("invite_role")), code=data.get("invite_code", ""))
-    result = await match_employee(repo, invite, data["full_name"], message.from_user.id)
+    result = await match_employee(repo, invite, name, message.from_user.id, phone)
 
     if result.employee is None:
         await state.clear()
-        await notify_hr_unknown(bot, config, message, data["full_name"], phone, invite, result.problem)
+        await notify_hr_unknown(bot, config, message, name, phone, invite, result.problem)
         await message.answer(
             "Не нашёл вас в списке сотрудников. Я передал заявку HR: после проверки "
             "вам пришлют новую ссылку или подтвердят доступ.",

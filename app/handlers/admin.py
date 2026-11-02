@@ -151,7 +151,7 @@ async def _concept_text(repo: Repository, e: Employee) -> str:
     concept = await repo.concept_of(e)
     if concept is None:
         return "все (доступ ко всем концепциям)"
-    names = {c.id: c.name or c.id for c in await repo.list_concepts()}
+    names = {c.id: c.name or c.id for c in await repo.list_concepts(active_only=False)}
     return html.quote(names.get(concept, concept)) if concept else "не определена (только общие материалы)"
 
 
