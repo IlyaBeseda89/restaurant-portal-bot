@@ -116,8 +116,16 @@ async def concept_chosen(call: CallbackQuery, repo: Repository, employee: Employ
 @router.callback_query(F.data == "pr:cats")
 async def back_to_categories(call: CallbackQuery, repo: Repository, employee: Employee) -> None:
     text, markup = await _categories_view(repo, employee)
-    await call.message.edit_text(text, reply_markup=markup)
+    await _show(call, text, markup)
     await call.answer()
+
+
+async def _show(call: CallbackQuery, text: str, markup) -> None:
+    """У сообщения с фото нет текста для правки: шлём новое сообщение."""
+    if call.message.photo:
+        await call.message.answer(text, reply_markup=markup)
+    else:
+        await call.message.edit_text(text, reply_markup=markup)
 
 
 async def _category_by_key(repo: Repository, concept: str | None, key: str) -> str | None:
@@ -137,7 +145,7 @@ async def category(call: CallbackQuery, repo: Repository, employee: Employee) ->
     dishes = await repo.list_products(concept, name)
     rows = [[(p.name, f"pr:d:{p.id}")] for p in dishes]
     rows.append([("⬅️ Ко всем категориям", "pr:cats")])
-    await call.message.edit_text(f"🍽 <b>{html.quote(name)}</b>", reply_markup=inline(rows))
+    await _show(call, f"🍽 <b>{html.quote(name)}</b>", inline(rows))
     await call.answer()
 
 
