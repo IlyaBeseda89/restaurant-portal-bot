@@ -185,5 +185,5 @@ async def finish(
     event = await repo.get_event(event_id)
     topic = await repo.get_topic(data["topic_id"])
     await call.message.edit_text("Запись открыта." if event.open else "Запись пока закрыта.")
-    await call.message.answer("Тренинг добавлен ✅", reply_markup=main_menu(employee.role, is_newbie))
+    await call.message.answer("Тренинг добавлен ✅", reply_markup=main_menu(employee, is_newbie))
     await call.message.answer(event_card(event, topic), reply_markup=_manager_buttons(event))

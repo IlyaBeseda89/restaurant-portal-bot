@@ -215,7 +215,7 @@ async def finish(
     await send_card(bot, config, repo, fb, data.get("media_chat_id"), data.get("media_message_id"))
     await message.answer(
         f"✅ Спасибо! Обращение <b>№{fb_id}</b> принято.",
-        reply_markup=main_menu(employee.role, is_newbie),
+        reply_markup=main_menu(employee, is_newbie),
     )
 
 
