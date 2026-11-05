@@ -11,7 +11,13 @@ import os
 from pathlib import Path
 
 from aiogram import F, Router, html
-from aiogram.types import BufferedInputFile, FSInputFile, CallbackQuery, InputMediaPhoto, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    FSInputFile,
+    InputMediaPhoto,
+    Message,
+)
 
 from app.drive import direct_download_url, download_drive_file
 from app.groups import allows, group_of
