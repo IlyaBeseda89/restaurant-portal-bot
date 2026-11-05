@@ -163,3 +163,29 @@ def test_render_pdf_limits():
         render_pdf(make_pdf(3), max_pages=2)
     with pytest.raises(Exception):  # noqa: B017
         render_pdf(b"not a pdf")
+
+
+async def test_local_video_is_sent_as_video_and_cached(h, repo, monkeypatch, tmp_path):
+    (tmp_path / "gigiena.mp4").write_bytes(b"fake-mp4")
+    monkeypatch.setattr(knowledge, "VIDEO_DIR", tmp_path)
+    knowledge._sent_videos.clear()
+    await repo.backend.append("Материалы", {
+        "id": "60", "категория_id": "safety", "название": "Гигиена", "тип": "видео", "url": "local:gigiena.mp4",
+        "концепция_id": "все", "для_новичков": "да", "порядок": "1", "активен": "да",
+    })
+    await register(h, 110, "employee_DEMOEMP1", "Петрова Анна Сергеевна")
+    await h.click(110, "kb:mat:60")
+    await h.click(110, "kb:mat:60")
+    videos = [c for c in h.session.calls if type(c).__name__ == "SendVideo"]
+    assert len(videos) == 2
+    assert not isinstance(videos[0].video, str)  # первый раз грузим файл
+    assert videos[1].video.startswith("vid-")  # потом берём из памяти Telegram
+    assert "Гигиена" in videos[0].caption
+
+
+async def test_local_video_cannot_leave_folder(h, repo, monkeypatch, tmp_path):
+    (tmp_path / "videos").mkdir()
+    (tmp_path / "secret.txt").write_text("x")
+    monkeypatch.setattr(knowledge, "VIDEO_DIR", tmp_path / "videos")
+    assert knowledge._local_video("local:../secret.txt") is None
+    assert knowledge._local_video("local:") is None

@@ -8,7 +8,7 @@ import pytest_asyncio
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.methods import TelegramMethod
-from aiogram.types import Chat, Message, MessageId, PhotoSize, Update, User
+from aiogram.types import Chat, Message, MessageId, PhotoSize, Update, User, Video
 
 from app.cli import cmd_demo
 from app.config import Config
@@ -36,6 +36,12 @@ class FakeSession(BaseSession):
             return Message(
                 message_id=self._next_id, date=dt.datetime.now(), chat=Chat(id=method.chat_id, type="private"),
                 photo=[PhotoSize(file_id=f"fid-{self._next_id}", file_unique_id="u", width=10, height=10)],
+                caption=getattr(method, "caption", None),
+            )
+        if name == "SendVideo":
+            return Message(
+                message_id=self._next_id, date=dt.datetime.now(), chat=Chat(id=method.chat_id, type="private"),
+                video=Video(file_id=f"vid-{self._next_id}", file_unique_id="v", width=1080, height=1920, duration=60),
                 caption=getattr(method, "caption", None),
             )
         if name in {"SendMessage", "EditMessageText", "SendDocument"}:
