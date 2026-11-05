@@ -7,9 +7,17 @@
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 
 from aiogram import F, Router, html
-from aiogram.types import BufferedInputFile, CallbackQuery, InputMediaPhoto, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    FSInputFile,
+    InputMediaPhoto,
+    Message,
+)
 
 from app.drive import direct_download_url, download_drive_file
 from app.groups import allows, group_of
@@ -25,13 +33,16 @@ log = logging.getLogger(__name__)
 # id материала → file_id в Telegram: повторная отправка мгновенная, без скачивания
 _sent_files: dict[str, str] = {}  # исходный файл-документ
 _sent_slides: dict[str, list[str]] = {}  # слайды-картинки презентации
+_sent_videos: dict[str, str] = {}  # видео материалов
+VIDEO_DIR = Path(os.getenv("VIDEO_DIR", "data/videos"))  # сюда кладут ролики для «local:имя.mp4»
+LOCAL_PREFIX = "local:"
 ALBUM_SIZE = 10  # больше 10 фото в одном альбоме Telegram не принимает
 
 router = Router(name="knowledge")
 router.message.filter(Registered())
 router.callback_query.filter(Registered())
 
-KIND_ICON = {"ссылка": "🔗", "файл": "📎", "статья": "📄"}
+KIND_ICON = {"ссылка": "🔗", "файл": "📎", "статья": "📄", "видео": "🎬"}
 
 
 async def _categories_view(repo: Repository, employee: Employee) -> tuple[str, object]:
@@ -114,6 +125,17 @@ async def material(call: CallbackQuery, repo: Repository, employee: Employee) ->
         return
     repo.log(employee.id, "просмотр материала", m.id)
     icon = KIND_ICON.get(m.kind.lower(), "🔗")
+    if m.kind.lower() == "видео" and (m.url.startswith(LOCAL_PREFIX) or direct_download_url(m.url)):
+        try:
+            await _send_video(call, m, icon)
+            await call.answer()
+            return
+        except Exception:
+            log.warning("Не удалось отправить видео материала %s", m.id, exc_info=True)
+            if not m.url.startswith(("http://", "https://")):
+                await call.message.answer("Не получилось отправить видео. Попробуйте позже.")
+                await call.answer()
+                return
     if m.kind.lower() == "файл" and direct_download_url(m.url):
         # Файл с Google Диска показываем прямо в чате: сотруднику не нужен вход в Google
         try:
@@ -133,6 +155,42 @@ async def material(call: CallbackQuery, repo: Repository, employee: Employee) ->
 
 
 PDF_BUTTON = "📄 Скачать PDF"
+
+
+def _local_video(url: str) -> Path | None:
+    """«local:имя.mp4» → файл в папке видео; выход за пределы папки запрещён."""
+    name = url.removeprefix(LOCAL_PREFIX).strip()
+    path = (VIDEO_DIR / name).resolve()
+    if not name or VIDEO_DIR.resolve() not in path.parents or not path.is_file():
+        return None
+    return path
+
+
+async def _send_video(call: CallbackQuery, m, icon: str) -> None:
+    """Видео играет прямо в чате. После первой отправки Telegram помнит файл, повторно он не грузится."""
+    caption = f"{icon} <b>{html.quote(m.title)}</b>"
+    cached = _sent_videos.get(m.id)
+    if cached:
+        await call.message.answer_video(cached, caption=caption, supports_streaming=True)
+        return
+    if m.url.startswith(LOCAL_PREFIX):
+        path = _local_video(m.url)
+        if path is None:
+            raise FileNotFoundError(m.url)
+        source = FSInputFile(path)
+    else:
+        status = await call.message.answer("⏳ Готовлю видео…")
+        try:
+            data, name = await download_drive_file(m.url)
+        finally:
+            try:
+                await status.delete()
+            except Exception:
+                log.debug("Не удалось удалить служебное сообщение", exc_info=True)
+        source = BufferedInputFile(data, filename=name or f"{m.title}.mp4")
+    sent = await call.message.answer_video(source, caption=caption, supports_streaming=True)
+    if sent.video:
+        _sent_videos[m.id] = sent.video.file_id
 
 
 async def _send_slides(message: Message, caption: str, photos: list) -> list[str]:

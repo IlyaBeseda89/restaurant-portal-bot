@@ -170,7 +170,7 @@ class Material:
     id: str
     category_id: str
     title: str
-    kind: str  # ссылка / файл / статья
+    kind: str  # ссылка / файл / статья / видео
     url: str
     concept_id: str  # id концепции или «все»
     for_newbies: bool
