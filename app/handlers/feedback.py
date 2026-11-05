@@ -23,6 +23,7 @@ from app.config import Config
 from app.handlers.common import Registered
 from app.keyboards import BTN_FEEDBACK, cancel_kb, inline, main_menu
 from app.models import Employee, Feedback
+from app.roles import Role
 from app.storage.repository import Repository
 
 log = logging.getLogger(__name__)
@@ -239,32 +240,36 @@ async def send_card(
     bot: Bot, config: Config, repo: Repository, fb: Feedback,
     media_chat_id: int | None, media_message_id: int | None,
 ) -> None:
-    if config.feedback_chat_id is None:
-        log.warning("FEEDBACK_CHAT_ID не задан, обращение №%s сохранено только в таблице", fb.id)
-        return
+    """Обращение уходит личными сообщениями директору, ТУ концепции и HR, а также в служебный чат."""
     restaurant = await repo.get_restaurant(fb.restaurant_id) if fb.restaurant_id else None
-    try:
-        card = await bot.send_message(
-            config.feedback_chat_id,
-            card_text(
-                fb, restaurant.name if restaurant else "", "новое",
-                ", ".join(x for x in (restaurant.city, restaurant.address) if x) if restaurant else "",
-            ),
-            reply_markup=status_kb(fb.id),
-        )
-        if media_chat_id and media_message_id:
-            # copy_message не показывает, от кого вложение
-            await bot.copy_message(
-                config.feedback_chat_id, media_chat_id, media_message_id,
-                reply_to_message_id=card.message_id,
-            )
-    except Exception:
-        log.exception("Не удалось отправить обращение №%s в служебный чат", fb.id)
+    text = card_text(
+        fb, restaurant.name if restaurant else "", "новое",
+        ", ".join(x for x in (restaurant.city, restaurant.address) if x) if restaurant else "",
+    )
+    targets: list[int] = [e.telegram_id for e in await repo.feedback_recipients(fb.restaurant_id)]
+    if config.feedback_chat_id is not None and config.feedback_chat_id not in targets:
+        targets.append(config.feedback_chat_id)
+    if not targets:
+        log.warning("Некому отправить обращение №%s, оно сохранено только в таблице", fb.id)
+        return
+    for chat_id in targets:
+        try:
+            card = await bot.send_message(chat_id, text, reply_markup=status_kb(fb.id))
+            if media_chat_id and media_message_id:
+                # copy_message не показывает, от кого вложение
+                await bot.copy_message(
+                    chat_id, media_chat_id, media_message_id, reply_to_message_id=card.message_id,
+                )
+        except Exception:
+            log.exception("Не удалось отправить обращение №%s в чат %s", fb.id, chat_id)
 
 
 @chat_router.callback_query(F.data.startswith("fbst:"))
 async def set_status(call: CallbackQuery, repo: Repository, config: Config) -> None:
-    if config.feedback_chat_id is None or call.message.chat.id != config.feedback_chat_id:
+    in_chat = config.feedback_chat_id is not None and call.message.chat.id == config.feedback_chat_id
+    # личная копия: статус меняют только те, кому обращение приходит
+    me = await repo.get_employee_by_telegram(call.from_user.id)
+    if not in_chat and (me is None or me.role not in (Role.HR, Role.TU, Role.DIRECTOR)):
         await call.answer("Статус меняется только в служебном чате.", show_alert=True)
         return
     _, fb_id, code = call.data.split(":", 2)

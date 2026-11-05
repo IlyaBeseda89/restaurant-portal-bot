@@ -145,6 +145,7 @@ class Concept:
     name: str
     moderator_id: str = ""
     active: bool = True
+    tu: str = ""  # ТУ концепции: ФИО или id через запятую
 
 
 @dataclass
