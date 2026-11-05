@@ -217,10 +217,10 @@ async def find_do(message: Message, state: FSMContext, repo: Repository, employe
     found = await repo.find_employees(message.text)
     if not found:
         await message.answer("Никого не нашёл. Попробуйте другую часть имени.",
-                             reply_markup=main_menu(employee.role, is_newbie))
+                             reply_markup=main_menu(employee, is_newbie))
         return
     rows = [[(f"{e.full_name}" + ("" if e.active else " (отключён)"), f"ad:e:{e.id}")] for e in found]
-    await message.answer("Выберите сотрудника:", reply_markup=main_menu(employee.role, is_newbie))
+    await message.answer("Выберите сотрудника:", reply_markup=main_menu(employee, is_newbie))
     await message.answer("Найдено:", reply_markup=inline(rows))
 
 
@@ -406,7 +406,7 @@ async def add_emp_finish(
     await state.clear()
     role = Role.parse(data["role"])
     if role is None or role not in assignable_roles(employee):
-        await call.message.answer("Не получилось, начните заново.", reply_markup=main_menu(employee.role, is_newbie))
+        await call.message.answer("Не получилось, начните заново.", reply_markup=main_menu(employee, is_newbie))
         await call.answer()
         return
     group = "" if key == "auto" else BY_KEY[key]
@@ -414,7 +414,7 @@ async def add_emp_finish(
     repo.log(employee.id, "админка: добавлен сотрудник", new.id)
     username = (await bot.me()).username
     await call.message.edit_text("Группа выбрана.")
-    await call.message.answer("Готово ✅", reply_markup=main_menu(employee.role, is_newbie))
+    await call.message.answer("Готово ✅", reply_markup=main_menu(employee, is_newbie))
     await call.message.answer(
         f"Сотрудник <b>{html.quote(new.full_name)}</b> добавлен ({html.quote(role.title)}, "
         f"группа: {TITLES[group_of(new)]}).\n"
@@ -555,7 +555,7 @@ async def mat_finish(
     await call.message.edit_text("Выбрано.")
     await call.message.answer(
         f"✅ Материал «{html.quote(data['title'])}» добавлен. Он уже виден в «Базе знаний».",
-        reply_markup=main_menu(employee.role, is_newbie),
+        reply_markup=main_menu(employee, is_newbie),
     )
     await call.answer()
 
@@ -689,7 +689,7 @@ async def _save_product(
     repo.log(employee.id, "админка: добавлена карточка", product_id)
     await message.answer(
         f"✅ Карточка «{html.quote(v['name'])}» добавлена.",
-        reply_markup=main_menu(employee.role, bool(is_newbie)),
+        reply_markup=main_menu(employee, bool(is_newbie)),
     )
 
 

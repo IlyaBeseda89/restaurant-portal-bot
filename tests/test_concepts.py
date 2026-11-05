@@ -1,7 +1,7 @@
 """Разделение по концепциям: чужое не показывается, общее («все») видно всем."""
 
 from app import schema as S
-from app.keyboards import BTN_FEEDBACK, BTN_KNOWLEDGE, BTN_PRODUCTS
+from app.keyboards import BTN_FEEDBACK, BTN_KNOWLEDGE, BTN_PRODUCTS, BTN_REQUEST
 from tests.conftest import FEEDBACK_CHAT, register
 
 
@@ -165,3 +165,16 @@ async def test_feedback_goes_privately_to_director_concept_tu_and_hr(h, repo):
     card = h.last_text(6001)
     await h.click(6001, "fbst:1:w", chat_id=6001, msg_text=card)
     assert (await repo.backend.read_all(S.FEEDBACK))[0]["статус"] == "в работе"
+
+
+async def test_restaurant_manager_can_open_training_request(h, repo):
+    code, fio = await other_employee(repo, ресторан_id="r1", должность="Менеджер")
+    await register(h, 400, f"employee_{code}", fio)
+    await h.send(400, BTN_REQUEST)
+    assert "Заявка на тренинг" in h.last_text(400)
+
+    code2, fio2 = await other_employee(repo, id="51", ресторан_id="r1", должность="Официант",
+                                       пригласительный_код="EXTRA002", телефон="+79005550000")
+    await register(h, 401, f"employee_{code2}", fio2, phone="+79005550000")
+    await h.send(401, BTN_REQUEST)
+    assert "Заявка на тренинг" not in h.last_text(401)

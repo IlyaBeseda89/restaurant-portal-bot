@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from app.models import Employee
-from app.roles import Role
+from app.roles import Role, Section, can
 
 STAFF, MANAGEMENT, LEADERS = "сотрудники", "менеджмент", "руководители"
 GROUPS = [STAFF, MANAGEMENT, LEADERS]  # по возрастанию уровня
@@ -67,3 +67,10 @@ def allows(material_group: str | None, employee_group: str) -> bool:
     # Опечатка в таблице не должна открывать материал всем: непонятное значение считаем «руководители»
     wanted = parse_group(material_group) or LEADERS
     return level(employee_group) >= level(wanted)
+
+
+def can_request_training(employee: Employee) -> bool:
+    """Заявка на тренинг и запись сотрудников: по роли, а также менеджерам ресторана (роль «сотрудник»)."""
+    if can(employee.role, Section.TRAINING_REQUEST):
+        return True
+    return employee.role is Role.EMPLOYEE and level(group_of(employee)) >= level(MANAGEMENT)

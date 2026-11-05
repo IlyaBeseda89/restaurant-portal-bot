@@ -97,7 +97,7 @@ async def match_employee(
 async def show_main_menu(message: Message, repo: Repository, employee: Employee, is_newbie: bool) -> None:
     key = "приветствие_новичка" if is_newbie else "приветствие"
     text = (await repo.get_text(key, DEFAULTS[key])).replace("{name}", html.quote(employee.first_name))
-    await message.answer(text, reply_markup=main_menu(employee.role, is_newbie))
+    await message.answer(text, reply_markup=main_menu(employee, is_newbie))
 
 
 @router.message(CommandStart())
@@ -128,7 +128,7 @@ async def cmd_start(
 async def cancel_any(message: Message, state: FSMContext, employee: Employee | None, is_newbie: bool) -> None:
     await state.clear()
     if employee is not None:
-        await message.answer("Отменено.", reply_markup=main_menu(employee.role, is_newbie))
+        await message.answer("Отменено.", reply_markup=main_menu(employee, is_newbie))
     else:
         await message.answer(
             "Регистрация отменена. Чтобы начать заново, снова откройте пригласительную ссылку.",

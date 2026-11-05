@@ -371,7 +371,7 @@ async def edit_value(
     event, topic = await _event_and_topic(repo, data["event_id"])
     if event is None or not event.active:
         await state.clear()
-        await message.answer("Тренинг уже закрыт или не найден.", reply_markup=main_menu(employee.role, is_newbie))
+        await message.answer("Тренинг уже закрыт или не найден.", reply_markup=main_menu(employee, is_newbie))
         return
     field, text = data["field"], message.text.strip()
     promoted: list[str] = []
@@ -394,7 +394,7 @@ async def edit_value(
     await state.clear()
     repo.log(employee.id, f"тренинг: изменено {field}", event.id)
     event, topic = await _event_and_topic(repo, event.id)
-    await message.answer("Сохранено ✅", reply_markup=main_menu(employee.role, is_newbie))
+    await message.answer("Сохранено ✅", reply_markup=main_menu(employee, is_newbie))
     await _show_card(message, repo, event.id)
     if notify:
         audience, _ = await event_audience(repo, event)

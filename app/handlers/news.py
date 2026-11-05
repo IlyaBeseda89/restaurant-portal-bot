@@ -281,7 +281,7 @@ async def publish(
             await asyncio.sleep(0.05)  # лимиты Telegram
         await repo.set_news_sent(post.id, sent)
         reply += f"\n📣 Доставлено: {sent} из {len(people)}."
-    await call.message.answer(reply, reply_markup=main_menu(employee.role, is_newbie))
+    await call.message.answer(reply, reply_markup=main_menu(employee, is_newbie))
 
 
 # ---------- правка ----------
@@ -358,7 +358,7 @@ async def apply_edit(
     repo.log(employee.id, "новости: изменена", edit_id)
     await state.clear()
     post = await repo.get_news(edit_id)
-    await message.answer("✅ Новость изменена в ленте.", reply_markup=main_menu(employee.role, False))
+    await message.answer("✅ Новость изменена в ленте.", reply_markup=main_menu(employee, False))
     await message.answer(
         "Прислать читателям обновлённую версию?",
         reply_markup=inline([[("📣 Разослать заново", f"nw:ru:{edit_id}")], [("Не надо", "nw:ru:no")]]),

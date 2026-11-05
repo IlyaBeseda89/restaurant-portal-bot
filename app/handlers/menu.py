@@ -25,7 +25,7 @@ async def help_(message: Message, repo: Repository) -> None:
 @router.message(Registered(), Command("menu"))
 async def menu(message: Message, state: FSMContext, employee: Employee, is_newbie: bool) -> None:
     await state.clear()
-    await message.answer("Главное меню", reply_markup=kb.main_menu(employee.role, is_newbie))
+    await message.answer("Главное меню", reply_markup=kb.main_menu(employee, is_newbie))
 
 
 @router.message(Command("id"))
@@ -38,7 +38,7 @@ async def chat_id(message: Message) -> None:
 async def unknown(message: Message, employee: Employee, is_newbie: bool) -> None:
     await message.answer(
         "Не понял команду. Пользуйтесь кнопками меню.",
-        reply_markup=kb.main_menu(employee.role, is_newbie),
+        reply_markup=kb.main_menu(employee, is_newbie),
     )
 
 

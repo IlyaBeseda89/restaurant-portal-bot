@@ -9,7 +9,9 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
-from app.roles import Role, Section, can
+from app.groups import can_request_training
+from app.models import Employee
+from app.roles import Section, can
 
 # Тексты кнопок главного меню (ТЗ, раздел 3)
 BTN_KNOWLEDGE = "📚 База знаний"
@@ -32,7 +34,8 @@ MENU_BUTTONS = {
 }
 
 
-def main_menu(role: Role, is_newbie: bool) -> ReplyKeyboardMarkup:
+def main_menu(employee: Employee, is_newbie: bool) -> ReplyKeyboardMarkup:
+    role = employee.role
     rows: list[list[str]] = []
     if is_newbie:
         rows.append([BTN_START])
@@ -40,7 +43,7 @@ def main_menu(role: Role, is_newbie: bool) -> ReplyKeyboardMarkup:
     rows.append([BTN_TRAININGS, BTN_FEEDBACK])
 
     extra: list[str] = []
-    if can(role, Section.TRAINING_REQUEST):
+    if can_request_training(employee):
         extra.append(BTN_REQUEST)
     if can(role, Section.REQUESTS_PROCESS):
         extra.append(BTN_REQUESTS_INBOX)

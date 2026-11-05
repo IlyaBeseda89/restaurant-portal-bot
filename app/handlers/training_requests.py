@@ -170,7 +170,7 @@ async def got_people(message: Message, state: FSMContext, repo: Repository) -> N
 async def abort(call: CallbackQuery, state: FSMContext, employee: Employee, is_newbie: bool) -> None:
     await state.clear()
     await call.message.edit_reply_markup(reply_markup=None)
-    await call.message.answer("Заявка отменена.", reply_markup=main_menu(employee.role, is_newbie))
+    await call.message.answer("Заявка отменена.", reply_markup=main_menu(employee, is_newbie))
     await call.answer()
 
 
@@ -195,7 +195,7 @@ async def send(
     tail = "" if managers else "\nКоординатор обучения увидит её в таблице."
     await call.message.answer(
         f"✅ Заявка №{request_id} отправлена. О решении сообщим в боте.{tail}",
-        reply_markup=main_menu(employee.role, is_newbie),
+        reply_markup=main_menu(employee, is_newbie),
     )
     await call.answer()
 
@@ -326,7 +326,7 @@ async def _finish_accept(
     await state.clear()
     r = await repo.get_request(data["request_id"])
     if r is None or r.status != "новая":
-        await message.answer("Заявка уже обработана.", reply_markup=main_menu(employee.role, is_newbie))
+        await message.answer("Заявка уже обработана.", reply_markup=main_menu(employee, is_newbie))
         return
     start = parse_datetime(data["start"])
     event_id = await repo.add_event(r.topic_id, start, r.format, r.venue, host, enrolled=r.count)
@@ -358,7 +358,7 @@ async def _finish_accept(
         note += f"\nВедущий {html.quote(trainer.full_name)} ещё не заходил в бота, сообщите ему сами."
     if missing:
         note += f"\nБот не нашёл: {html.quote(', '.join(missing))}. Сообщите им сами."
-    await message.answer(note, reply_markup=main_menu(employee.role, is_newbie))
+    await message.answer(note, reply_markup=main_menu(employee, is_newbie))
 
 
 async def _ask_comment(call: CallbackQuery, state: FSMContext, repo: Repository, prefix: str, verb: str) -> None:
@@ -394,7 +394,7 @@ async def got_comment(
     await state.clear()
     r = await repo.get_request(data["request_id"])
     if r is None or r.status != "новая":
-        await message.answer("Заявка уже обработана.", reply_markup=main_menu(employee.role, is_newbie))
+        await message.answer("Заявка уже обработана.", reply_markup=main_menu(employee, is_newbie))
         return
     comment = message.text.strip()[:500]
     verdict = data["verdict"]
@@ -413,4 +413,4 @@ async def got_comment(
             f"{head}\n🎓 {html.quote(topic.name) if topic else ''}\n💬 {html.quote(comment)}",
         )
     note = "Директору отправлено." if sent else "Директору не удалось отправить в бот, сообщите ему сами."
-    await message.answer(f"Готово. {note}", reply_markup=main_menu(employee.role, is_newbie))
+    await message.answer(f"Готово. {note}", reply_markup=main_menu(employee, is_newbie))

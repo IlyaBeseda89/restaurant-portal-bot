@@ -24,11 +24,18 @@ def test_access_matrix():
         assert can(Role.HR, section)
 
 
+def person(role, position=""):
+    return Employee("1", None, "А Б", "", "", position, role, None, True, "", None)
+
+
 def test_menu_by_role():
-    assert BTN_REQUEST not in buttons(main_menu(Role.EMPLOYEE, False))
-    assert BTN_REQUEST in buttons(main_menu(Role.DIRECTOR, False))
-    assert BTN_ADMIN in buttons(main_menu(Role.HR, False))
-    assert BTN_START in buttons(main_menu(Role.EMPLOYEE, True))
+    assert BTN_REQUEST not in buttons(main_menu(person(Role.EMPLOYEE), False))
+    assert BTN_REQUEST not in buttons(main_menu(person(Role.EMPLOYEE, "официант"), False))
+    assert BTN_REQUEST in buttons(main_menu(person(Role.DIRECTOR), False))
+    # менеджер ресторана записан как «сотрудник», но входит в группу «менеджмент»
+    assert BTN_REQUEST in buttons(main_menu(person(Role.EMPLOYEE, "Менеджер"), False))
+    assert BTN_ADMIN in buttons(main_menu(person(Role.HR), False))
+    assert BTN_START in buttons(main_menu(person(Role.EMPLOYEE), True))
 
 
 def test_parse_invite():
