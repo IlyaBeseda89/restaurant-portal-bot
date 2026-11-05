@@ -178,3 +178,17 @@ async def test_restaurant_manager_can_open_training_request(h, repo):
     await register(h, 401, f"employee_{code2}", fio2, phone="+79005550000")
     await h.send(401, BTN_REQUEST)
     assert "Заявка на тренинг" not in h.last_text(401)
+
+
+async def test_restaurant_tu_overrides_concept_tu(h, repo):
+    base = {"телефон": "", "должность": "", "дата_старта": "01.01.2020", "дата_добавления": "01.01.2020",
+            "активен": "да", "новичок": "нет", "ресторан_id": ""}
+    for i, (eid, tg, fio) in enumerate([("70", 7001, "Первый Пётр"), ("71", 7002, "Второй Павел")]):
+        await repo.backend.append(S.EMPLOYEES, {
+            **base, "id": eid, "telegram_id": str(tg), "фио": fio, "роль": "ту",
+            "пригласительный_код": f"TU{i}"})
+    await repo.backend.update(S.CONCEPTS, "id", "trat", {"ТУ": "Первый Пётр, Второй Павел"})
+    assert {e.id for e in await repo.feedback_recipients("r1")} == {"70", "71"}  # ТУ ресторана не указан: по концепции
+    await repo.backend.update(S.RESTAURANTS, "id", "r1", {"ТУ": "Павел Второй"})
+    assert {e.id for e in await repo.feedback_recipients("r1")} == {"71"}
+    assert {e.id for e in await repo.feedback_recipients("r2")} == {"70", "71"}

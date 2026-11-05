@@ -156,6 +156,7 @@ class Restaurant:
     city: str
     address: str
     active: bool
+    tu: str = ""  # ТУ ресторана: ФИО или id через запятую
 
 
 @dataclass
