@@ -189,3 +189,17 @@ async def test_local_video_cannot_leave_folder(h, repo, monkeypatch, tmp_path):
     monkeypatch.setattr(knowledge, "VIDEO_DIR", tmp_path / "videos")
     assert knowledge._local_video("local:../secret.txt") is None
     assert knowledge._local_video("local:") is None
+
+
+def test_mp4_size_reads_dimensions(tmp_path):
+    import struct
+
+    tkhd_body = bytes([0]) + bytes(3) + bytes(72) + struct.pack(">II", 1080 << 16, 1920 << 16)
+    tkhd = struct.pack(">I4s", 8 + len(tkhd_body), b"tkhd") + tkhd_body
+    trak = struct.pack(">I4s", 8 + len(tkhd), b"trak") + tkhd
+    moov = struct.pack(">I4s", 8 + len(trak), b"moov") + trak
+    ftyp = struct.pack(">I4s", 12, b"ftyp") + b"isom"
+    f = tmp_path / "v.mp4"
+    f.write_bytes(ftyp + moov)
+    assert knowledge.mp4_size(f) == (1080, 1920)
+    assert knowledge.mp4_size(tmp_path / "missing.mp4") is None

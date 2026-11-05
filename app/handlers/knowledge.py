@@ -157,6 +157,54 @@ async def material(call: CallbackQuery, repo: Repository, employee: Employee) ->
 PDF_BUTTON = "📄 Скачать PDF"
 
 
+def mp4_size(path: Path) -> tuple[int, int] | None:
+    """Ширина и высота видео из заголовка mp4 (moov/trak/tkhd). None, если прочитать не вышло."""
+    import struct
+
+    def boxes(f, start: int, end: int):
+        pos = start
+        while pos + 8 <= end:
+            f.seek(pos)
+            head = f.read(8)
+            if len(head) < 8:
+                return
+            size, kind = struct.unpack(">I4s", head)
+            header = 8
+            if size == 1:
+                size = struct.unpack(">Q", f.read(8))[0]
+                header = 16
+            elif size == 0:
+                size = end - pos
+            if size < header:
+                return
+            yield kind, pos + header, pos + size
+            pos += size
+
+    try:
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            total = f.tell()
+            for kind, a, b in boxes(f, 0, total):
+                if kind != b"moov":
+                    continue
+                for k2, a2, b2 in boxes(f, a, b):
+                    if k2 != b"trak":
+                        continue
+                    for k3, a3, b3 in boxes(f, a2, b2):
+                        if k3 != b"tkhd":
+                            continue
+                        f.seek(a3)
+                        version = f.read(1)[0]
+                        f.seek(a3 + (88 if version == 1 else 76))
+                        w, h = struct.unpack(">II", f.read(8))
+                        w, h = w >> 16, h >> 16
+                        if w and h:
+                            return w, h
+    except Exception:
+        log.debug("Не удалось прочитать размеры видео %s", path, exc_info=True)
+    return None
+
+
 def _local_video(url: str) -> Path | None:
     """«local:имя.mp4» → файл в папке видео; выход за пределы папки запрещён."""
     name = url.removeprefix(LOCAL_PREFIX).strip()
@@ -173,11 +221,15 @@ async def _send_video(call: CallbackQuery, m, icon: str) -> None:
     if cached:
         await call.message.answer_video(cached, caption=caption, supports_streaming=True)
         return
+    extra: dict[str, int] = {}
     if m.url.startswith(LOCAL_PREFIX):
         path = _local_video(m.url)
         if path is None:
             raise FileNotFoundError(m.url)
         source = FSInputFile(path)
+        size = mp4_size(path)
+        if size:
+            extra = {"width": size[0], "height": size[1]}
     else:
         status = await call.message.answer("⏳ Готовлю видео…")
         try:
@@ -188,7 +240,7 @@ async def _send_video(call: CallbackQuery, m, icon: str) -> None:
             except Exception:
                 log.debug("Не удалось удалить служебное сообщение", exc_info=True)
         source = BufferedInputFile(data, filename=name or f"{m.title}.mp4")
-    sent = await call.message.answer_video(source, caption=caption, supports_streaming=True)
+    sent = await call.message.answer_video(source, caption=caption, supports_streaming=True, **extra)
     if sent.video:
         _sent_videos[m.id] = sent.video.file_id
 
