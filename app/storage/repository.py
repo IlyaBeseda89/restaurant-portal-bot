@@ -171,7 +171,7 @@ class Repository:
             Restaurant(
                 id=r["id"], name=r.get("название", ""), concept_id=r.get("концепция_id", ""),
                 city=r.get("город", ""), address=r.get("адрес", ""),
-                active=parse_bool(r.get("активен")),
+                active=parse_bool(r.get("активен")), tu=r.get("ТУ", "").strip(),
             )
             for r in rows if r.get("id")
         ]
@@ -651,7 +651,7 @@ class Repository:
     async def feedback_recipients(self, restaurant_id: str) -> list[Employee]:
         """Кому лично приходит обращение: директор ресторана, ТУ его концепции и все HR.
 
-        ТУ берутся из колонки «ТУ» листа «Концепции» (ФИО или id через запятую), один ТУ может
+        ТУ берутся из колонки «ТУ» листа «Рестораны», а если там пусто, из «Концепции» (ФИО или id через запятую), один ТУ может
         быть записан в нескольких концепциях. Получить сообщение может только тот, кто уже зашёл в бота.
         """
         restaurant = await self.get_restaurant(restaurant_id) if restaurant_id else None
@@ -665,7 +665,9 @@ class Repository:
         if restaurant:
             concept = next((c for c in await self.list_concepts(active_only=False)
                             if c.id == restaurant.concept_id), None)
-            names = [x.strip() for x in re.split(r"[,;\n]", concept.tu if concept else "") if x.strip()]
+            # ТУ ресторана важнее ТУ концепции: если у ресторана указан свой ТУ, остальные не получают
+            raw = restaurant.tu or (concept.tu if concept else "")
+            names = [x.strip() for x in re.split(r"[,;\n]", raw) if x.strip()]
             for e in people:
                 if e.role is Role.TU and any(n == e.id or name_matches(n, e.full_name) for n in names):
                     found[e.id] = e
