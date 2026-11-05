@@ -1,8 +1,8 @@
 """Разделение по концепциям: чужое не показывается, общее («все») видно всем."""
 
 from app import schema as S
-from app.keyboards import BTN_KNOWLEDGE, BTN_PRODUCTS
-from tests.conftest import register
+from app.keyboards import BTN_FEEDBACK, BTN_KNOWLEDGE, BTN_PRODUCTS
+from tests.conftest import FEEDBACK_CHAT, register
 
 
 def texts(markup):
@@ -131,3 +131,37 @@ async def test_hidden_concept_is_not_offered(repo):
     # рестораны скрытой концепции не предлагаются при добавлении сотрудников, но по id находятся
     assert all(r.concept_id != hidden.id for r in await repo.list_restaurants())
     assert any(r.concept_id == hidden.id for r in await repo.list_restaurants(active_only=False))
+
+
+async def test_feedback_goes_privately_to_director_concept_tu_and_hr(h, repo):
+    """Обращение из Траттории: директор ресторана, ТУ концепции и HR; ТУ только Бистро ничего не получает."""
+    base = {"телефон": "", "должность": "", "дата_старта": "01.01.2020", "дата_добавления": "01.01.2020",
+            "активен": "да", "новичок": "нет"}
+    people = [
+        ("60", 6001, "Директоров Дмитрий", "r1", "директор"),
+        ("61", 6002, "Тувов Тимур", "", "ту"),        # ТУ обеих концепций
+        ("62", 6003, "Бистров Борис", "", "ту"),      # ТУ только Бистро
+        ("63", 6004, "Кадров Кирилл", "", "hr"),
+        ("64", 6005, "Директоров Другой", "r3", "директор"),  # директор другого ресторана
+    ]
+    for i, (eid, tg, fio, rest, role) in enumerate(people):
+        await repo.backend.append(S.EMPLOYEES, {
+            **base, "id": eid, "telegram_id": str(tg), "фио": fio, "ресторан_id": rest,
+            "роль": role, "пригласительный_код": f"FB{i}"})
+    await repo.backend.update(S.CONCEPTS, "id", "trat", {"ТУ": "Тимур Тувов"})  # порядок слов любой
+    await repo.backend.update(S.CONCEPTS, "id", "bistro", {"ТУ": "61, Бистров Борис"})
+
+    await register(h, 300, "employee_DEMOEMP1", "Петрова Анна Сергеевна")
+    await h.send(300, BTN_FEEDBACK)
+    await h.click(300, "fb:cat:crit")
+    await h.send(300, "Грубый администратор")
+    await h.click(300, "fb:mode:anon")
+
+    for tg in (6001, 6002, 6004, FEEDBACK_CHAT):
+        assert "Обращение №1" in h.last_text(tg), tg
+    for tg in (6003, 6005):
+        assert h.session.sent(tg) == [], tg
+
+    card = h.last_text(6001)
+    await h.click(6001, "fbst:1:w", chat_id=6001, msg_text=card)
+    assert (await repo.backend.read_all(S.FEEDBACK))[0]["статус"] == "в работе"

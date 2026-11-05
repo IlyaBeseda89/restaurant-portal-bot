@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import secrets
 import uuid
 from collections import Counter
@@ -190,7 +191,7 @@ class Repository:
         items = [
             Concept(
                 id=r["id"], name=r.get("название", ""), moderator_id=r.get("модератор_id", "").strip(),
-                active=parse_bool(r.get("активна")),
+                active=parse_bool(r.get("активна")), tu=r.get("ТУ", "").strip(),
             )
             for r in rows if r.get("id")
         ]
@@ -646,6 +647,29 @@ class Repository:
         """Кому приходят новые заявки на тренинги: HR (распределяет их), а без HR менеджерам по обучению."""
         hr = [e for e in await self.list_employees() if e.role is Role.HR and e.active and e.telegram_id]
         return hr or await self.training_managers()
+
+    async def feedback_recipients(self, restaurant_id: str) -> list[Employee]:
+        """Кому лично приходит обращение: директор ресторана, ТУ его концепции и все HR.
+
+        ТУ берутся из колонки «ТУ» листа «Концепции» (ФИО или id через запятую), один ТУ может
+        быть записан в нескольких концепциях. Получить сообщение может только тот, кто уже зашёл в бота.
+        """
+        restaurant = await self.get_restaurant(restaurant_id) if restaurant_id else None
+        people = [e for e in await self.list_employees() if e.active and e.telegram_id]
+        found: dict[str, Employee] = {}
+        for e in people:
+            if e.role is Role.HR or (
+                e.role is Role.DIRECTOR and restaurant and e.restaurant_id == restaurant.id
+            ):
+                found[e.id] = e
+        if restaurant:
+            concept = next((c for c in await self.list_concepts(active_only=False)
+                            if c.id == restaurant.concept_id), None)
+            names = [x.strip() for x in re.split(r"[,;\n]", concept.tu if concept else "") if x.strip()]
+            for e in people:
+                if e.role is Role.TU and any(n == e.id or name_matches(n, e.full_name) for n in names):
+                    found[e.id] = e
+        return list(found.values())
 
     async def trainers(self) -> list[Employee]:
         """Те, кого можно назначить ведущим: отмеченные «ведущий» и менеджеры по обучению."""
